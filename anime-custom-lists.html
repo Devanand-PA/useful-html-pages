@@ -96,10 +96,26 @@
   .tab:hover { border-color: var(--accent); color: var(--text); }
   .tab.active { background: var(--accent); color: #1b1826; font-weight: 700; border-color: var(--accent); }
   .tab .del {
-    margin-left: 8px; color: inherit; opacity: .55; cursor: pointer;
+    margin-left: 6px; color: inherit; opacity: .55; cursor: pointer;
   }
   .tab .del:hover { opacity: 1; }
   .tab.new-tab { border-style: dashed; }
+  .tab .ren {
+    margin-left: 6px; color: inherit; opacity: .5; cursor: pointer; font-size: .78rem;
+  }
+  .tab .ren:hover { opacity: 1; }
+
+  .rec-more {
+    width: 100%; margin-top: 6px; background: transparent; border: 1px dashed var(--accent);
+    color: var(--accent); border-radius: 8px; padding: 7px 0; cursor: pointer;
+    font-size: .72rem; font-weight: 700;
+  }
+  .rec-more:hover:not(:disabled) { background: var(--accent); color: #1b1826; }
+  .rec-more:disabled { opacity: .5; cursor: default; }
+  .rec-more-end {
+    text-align: center; font-size: .62rem; color: var(--muted); margin-top: 7px;
+    letter-spacing: .09em; text-transform: uppercase;
+  }
 
   /* watch list panel */
   .list-panel {
@@ -340,6 +356,37 @@
   }
   .src-toggle button.on { border-color: var(--accent); color: var(--accent); }
 
+  /* season filter chips — shared by the search box and the recommendations panel */
+  .season-toggle { display: flex; gap: 6px; align-items: center; margin-top: 9px; flex-wrap: wrap; }
+  .season-toggle .st-label {
+    font-size: .62rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 800;
+  }
+  .season-toggle button {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: .66rem; font-weight: 700;
+  }
+  .season-toggle button.on { border-color: var(--accent); color: var(--accent); }
+  #recSeasonToggle { margin-top: 0; margin-bottom: 9px; }
+
+  /* list-panel header row: title + count on the left, actions on the right */
+  .list-title-row { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; flex-wrap: wrap; }
+  .list-title-row h2 { margin: 0; font-size: 1.05rem; }
+  .list-title-row h2 small { color: var(--muted); font-weight: 400; font-size: .8rem; }
+  .list-title-row .spacer { flex: 1; }
+  .list-panel .mini-btn { background: var(--panel2); }
+
+  /* list tabs double as drop targets: drag a card onto another tab to move it there */
+  .tab.tab-over {
+    border-color: var(--accent); color: var(--text); background: var(--panel2);
+    box-shadow: 0 0 0 2px rgba(167,139,250,.35); transform: translateY(-1px);
+  }
+  .tab.tab-over::after { content: " ⤓"; color: var(--accent); }
+  .move-note {
+    margin: -4px 0 14px; font-size: .76rem; color: var(--text);
+    background: rgba(167,139,250,.10); border: 1px solid rgba(167,139,250,.35);
+    border-radius: 8px; padding: 6px 11px;
+  }
+
   @media (max-width: 1400px) {
     .wrap { grid-template-columns: 320px minmax(0, 1fr); }
     .sidebar-right {
@@ -378,11 +425,16 @@
       <input id="searchInput" placeholder="Search anime…" autocomplete="off">
       <button id="searchBtn">Search</button>
     </div>
+    <div class="season-toggle" id="searchSeasonToggle"
+         title="Applies to search results only (recommendations have their own switch)."></div>
     <div class="results" id="results"></div>
     <div class="drop-hint">
       Live search via AniList → Kitsu → MAL (auto-failover).<br>
       Drag results into any tier or watch list.<br>
-      Hover = synopsis & score · dbl-click card = notes · dbl-click tier label = rename.<br>
+      Drag a card onto <b style="color:var(--accent)">any tab above</b> to copy it into that
+      list — the original stays put, tier list ⇄ watch list.<br>
+      Hover = synopsis &amp; score · dbl-click card = notes · dbl-click tier label = rename.<br>
+      <b style="color:var(--accent)">✎</b> on a tab or list header renames that list.<br>
       <b style="color:var(--accent)">Right panel</b> builds recommendations from
       your tiers + watch list and scores.
     </div>
@@ -390,6 +442,7 @@
 
   <main class="main">
     <div class="tabs" id="tabs"></div>
+    <div class="move-note" id="moveNote" style="display:none"></div>
     <div id="listsArea"></div>
   </main>
 
@@ -412,7 +465,10 @@
         <div class="spacer"></div>
         <span id="recCount" style="font-size:.68rem;color:var(--muted)"></span>
       </div>
+      <div class="season-toggle" id="recSeasonToggle"
+           title="Applies to recommendations only (search has its own switch)."></div>
       <div class="rec-list" id="recList"></div>
+      <div id="recMore"></div>
       <div class="rec-note" id="recNote"></div>
     </div>
   </aside>
@@ -589,6 +645,27 @@ const DEFAULT_TIERS = ["SS","S","A","B","C","D","F"];
 const TIER_COLORS = ["#ffd700","#ff8c1a","#ff4d6d","#b04dff","#3fa7ff","#35c98a","#7a7f8a",
   "#00c2c7","#c9b458","#88e0f0","#d38ea9","#9db24f","#5fb0ff","#e07be0"];
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+/* =========================================================
+   PREFERENCES — persisted separately from the save slots, and
+   deliberately two independent switches: the recommendations panel and
+   the search box each decide on their own whether other seasons of a
+   show should be shown.
+   ========================================================= */
+const PREF_KEY = "animeTrackerPrefs_v1";
+function loadPrefs() {
+  try {
+    const p = JSON.parse(localStorage.getItem(PREF_KEY) || "{}");
+    return p && typeof p === "object" && !Array.isArray(p) ? p : {};
+  } catch (e) { return {}; }
+}
+const prefs = Object.assign(
+  { recOtherSeasons: false,   // OFF: one entry per franchise, no sequels
+    searchOtherSeasons: true  // ON: search shows whatever the API returns
+  }, loadPrefs());
+function savePrefs() {
+  try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch (e) {}
+}
 
 const ISEKAI_SEED = {
   SS: ["Re:Zero kara hajimeru isekai seikatsu","Kono Subarashii Sekai ni Shukufuku wo"],
@@ -822,6 +899,7 @@ function renderSaveList() {
 
 /* ==================== DOM ==================== */
 const tabsEl = document.getElementById("tabs");
+const moveNoteEl = document.getElementById("moveNote");
 const listsArea = document.getElementById("listsArea");
 const tooltip = document.getElementById("tooltip");
 const resultsEl = document.getElementById("results");
@@ -842,6 +920,7 @@ function render() {
   else listsArea.appendChild(renderTierList(list));
   renderSearchResults();   // keep results stable across re-renders
   renderTaste();           // taste profile always mirrors current page data
+  renderSeasonToggles();   // reflects the saved prefs after any re-render
   scheduleSave();
   syncMissingMeta();
 }
@@ -851,13 +930,19 @@ function renderTabs() {
   state.lists.forEach(l => {
     const t = document.createElement("div");
     t.className = "tab" + (l.id === state.active ? " active" : "");
+    t.dataset.listId = l.id;
     t.innerHTML = escapeHtml(l.name);
-    t.title = "Click to open · double-click to rename";
+    t.title = "Click to open · drag a card here to copy it into this list · ✎ to rename";
     t.addEventListener("click", () => { state.active = l.id; render(); });
-    t.addEventListener("dblclick", () => {
-      const n = prompt("Rename list:", l.name);
-      if (n && n.trim()) { l.name = n.trim(); render(); }
-    });
+    t.addEventListener("dblclick", () => renameList(l));
+    const ren = document.createElement("span");
+    ren.className = "ren"; ren.textContent = "✎";
+    ren.title = "Rename " + (l.kind === "tier" ? "tier list" : "watch list");
+    ren.addEventListener("click", ev => { ev.stopPropagation(); renameList(l); });
+    /* stopPropagation() on click does not suppress the separate dblclick event,
+       which would otherwise bubble to the tab and open a second prompt. */
+    ren.addEventListener("dblclick", ev => ev.stopPropagation());
+    t.appendChild(ren);
     if (state.lists.length > 1) {
       const del = document.createElement("span");
       del.className = "del"; del.textContent = "✕"; del.title = "Delete this list";
@@ -896,8 +981,7 @@ function addList(kind) {
 function renderWatchList(list) {
   const div = document.createElement("div");
   div.className = "list-panel"; div.dataset.listId = list.id;
-  div.innerHTML = "<h2>📺 " + escapeHtml(list.name) +
-    ' <small>(' + list.entries.length + ")</small></h2>";
+  div.appendChild(makeListTitleRow(list, "📺", list.entries.length));
   const zone = document.createElement("div");
   zone.className = "drop-zone"; zone.dataset.listId = list.id; zone.dataset.tierId = "";
   list.entries.forEach(e => zone.appendChild(makeCard(list, e)));
@@ -905,9 +989,11 @@ function renderWatchList(list) {
   return div;
 }
 
+
 function renderTierList(list) {
   const div = document.createElement("div");
   div.className = "list-panel"; div.dataset.listId = list.id;
+  div.appendChild(makeListTitleRow(list, "🏆", list.entries.length));
   // unranked row first
   div.appendChild(makeTierRow(list, { id: "", label: "—" }, "unranked"));
   list.tiers.forEach((t, i) => {
@@ -925,6 +1011,38 @@ function renderTierList(list) {
   });
   div.appendChild(addTierBtn);
   return div;
+}
+
+/* Shared header row: icon + list name + entry count, then Rename on the right. */
+function makeListTitleRow(list, icon, count) {
+  const row = document.createElement("div");
+  row.className = "list-title-row";
+  row.innerHTML = "<h2>" + icon + " " + escapeHtml(list.name) +
+    ' <small>(' + count + ")</small></h2>";
+  const spacer = document.createElement("div");
+  spacer.className = "spacer";
+  const rn = document.createElement("button");
+  rn.className = "mini-btn";
+  rn.textContent = "✎ Rename";
+  rn.title = "Rename this " + (list.kind === "tier" ? "tier list" : "watch list");
+  rn.addEventListener("click", () => renameList(list));
+  row.appendChild(spacer);
+  row.appendChild(rn);
+  return row;
+}
+
+/* Rename a tier list or a watch list.  Reached from the tab pencil, the header
+   button, or a double-click on the tab. */
+function renameList(list) {
+  const n = prompt(
+    (list.kind === "tier" ? "Rename tier list:" : "Rename watch list:"), list.name);
+  if (n === null) return;                       // cancelled
+  const name = n.trim();
+  if (!name) { alert("A list needs a name."); return; }
+  const final = name.slice(0, 60);
+  if (final === list.name) return;
+  list.name = final;
+  render();
 }
 
 function makeTierRow(list, tier, extraCls) {
@@ -1120,6 +1238,76 @@ function normTitle(t) {
     .replace(/[^a-z0-9]+/g, " ").trim();
 }
 function bump(map, key, val) { map.set(key, (map.get(key) || 0) + val); }
+
+/* ---- season / franchise helpers --------------------------------------------
+   "Other seasons" means sequels, prequels, "Part 2", "S2", "2nd Season", "Final
+   Season"… of the same show.  The three providers disagree on how (or whether)
+   they expose relation data, so the test is deliberately local and title-based:
+   reduce a title to its franchise stem and look for a season marker on it. */
+function baseTitle(t) {
+  const n = normTitle(t)
+    .replace(/\b(?:final|second|third|fourth|fifth)\s+season\b/g, " ")
+    .replace(/\bpart\b/g, " ")
+    .replace(/\s(?:part\s+)?[ivx]{1,5}\s*$/g, " ")   // "Sword Art Online II"
+    .replace(/\s+/g, " ").trim();
+  /* Strip short digit runs from the tail only: a LEADING number is part of the name
+     ("91 Days", "86"), a trailing one is usually a season number ("Steins;Gate 0"). */
+  const parts = n.split(" ");
+  const head = parts[0] || "";
+  const tail = parts.slice(1).filter(w => !/^\d{1,2}$/.test(w)).join(" ");
+  return [head, tail].filter(Boolean).join(" ") || n;
+}
+/* No /g flag — .test() must stay stateless. */
+const SEASON_MARK = /\b(?:season|part|cour)\s*\d+\b|\b\d+(?:st|nd|rd|th)\s+season\b|\b(?:final|second|third|fourth|fifth)\s+season\b|\bs\d{1,2}\b|\s(?:part\s+)?[ivx]{1,5}\s*$|\s\d{1,2}\s*$/i;
+function hasSeasonMarker(t) { return SEASON_MARK.test(String(t || "")); }
+
+/* AniList splits franchises into many entries ("Demon Slayer: Mugen Train",
+   "...Entertainment District Arc", "...Infinity Castle"). Keep only the strongest
+   result per franchise so one show cannot flood the sidebar. */
+const FRANCHISE_NOISE = new Set(["season", "movie", "arc", "part", "the", "and", "new",
+  "final", "movie2", "series", "tv", "ona", "special", "first", "second", "third"]);
+function franchiseKey(title) {
+  const toks = normTitle(title).split(" ").filter(w => w.length > 2 && !FRANCHISE_NOISE.has(w));
+  return toks.slice(0, 2).join(" ") || normTitle(title);
+}
+function dedupeByFranchise(ranked) {
+  const best = new Map();
+  for (const r of ranked) {                       // input must be highest-rank first
+    const k = franchiseKey(r.title);
+    if (!best.has(k)) best.set(k, r);
+  }
+  return [...best.values()];
+}
+
+/* Filter a result pool down to one entry per franchise when the user has "other
+   seasons" switched off.  Inside a group the base entry wins (no season marker),
+   otherwise the pool's first entry; a continuation entry is also dropped outright
+   when its franchise stem is already on one of the user's lists — that is exactly
+   the "I already track this show, don't show me its other seasons" case. */
+function withoutOtherSeasons(items, keyOf) {
+  const tracked = new Set();
+  for (const l of state.lists) for (const e of l.entries) {
+    const b = baseTitle(e.title);
+    if (b) tracked.add(b);
+  }
+  const groups = new Map();
+  for (const it of items) {
+    const k = baseTitle(keyOf(it)) || normTitle(keyOf(it));
+    if (!k) continue;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(it);
+  }
+  const out = [];
+  for (const [, arr] of groups) {
+    /* Prefer an entry with no season marker; otherwise keep the pool's FIRST entry
+       (relevance for search, rank for recommendations) rather than the oldest year —
+       that stops a query for "Persona 5" from collapsing down to "Persona 4". */
+    const base = arr.find(x => !hasSeasonMarker(keyOf(x))) || arr[0];
+    if (hasSeasonMarker(keyOf(base)) && tracked.has(baseTitle(keyOf(base)))) continue;
+    out.push(base);
+  }
+  return out;
+}
 function topEntries(map, n) {
   return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, n);
 }
@@ -1259,16 +1447,57 @@ function offlineRecs(profile, seen, limit, looksTracked) {
    which runs before the render block is evaluated during boot — can never touch them
    inside their temporal dead zone. */
 const recListEl   = document.getElementById("recList");
+const recMoreEl   = document.getElementById("recMore");
 const recNoteEl   = document.getElementById("recNote");
 const recCountEl  = document.getElementById("recCount");
 const statGridEl  = document.getElementById("statGrid");
 const tasteBarsEl = document.getElementById("tasteBars");
 const tasteSrcEl  = document.getElementById("tasteSources");
 
+/* ---- "other seasons" switches (search and recommendations are independent) ---- */
+function renderSeasonToggles() {
+  const mount = (hostId, key, scope) => {
+    const host = document.getElementById(hostId);
+    if (!host) return;
+    host.innerHTML = "";
+    const lab = document.createElement("span");
+    lab.className = "st-label";
+    lab.textContent = scope;
+    const b = document.createElement("button");
+    const paint = () => {
+      const on = !!prefs[key];
+      b.className = on ? "on" : "";
+      b.textContent = "Other seasons: " + (on ? "ON" : "OFF");
+      b.title = (on
+        ? "Showing sequels / other seasons of the same anime in " + scope.toLowerCase() + ". Click to hide them."
+        : "Only one entry per show in " + scope.toLowerCase() + ". Click to include sequels / other seasons.");
+    };
+    paint();
+    b.addEventListener("click", () => {
+      prefs[key] = !prefs[key];
+      savePrefs();
+      paint();
+      if (key === "searchOtherSeasons") renderSearchResults();
+      else renderRecs();
+    });
+    host.appendChild(lab);
+    host.appendChild(b);
+  };
+  mount("searchSeasonToggle", "searchOtherSeasons", "Search");
+  mount("recSeasonToggle", "recOtherSeasons", "Recommendations");
+}
+
 /* ==================== orchestration ==================== */
+const REC_PAGE = 10;                 // recommendations revealed per "Load more" click
 let recCandidates = [];
 let tasteProfile = null;
 let recBusy = false;
+let recShown = REC_PAGE;             // how many of the visible candidates to render
+let recMoreBusy = false;             // a "load more" network fetch is in flight
+let recWeights = null;               // scoring weights from the last successful pass
+let recVotes = new Map();
+let recSeen = null;
+let recOffline = false;              // current pool came from the built-in fallback list
 
 function pageSignature() {
   return state.lists.filter(sourceEnabled)
@@ -1285,28 +1514,12 @@ function writeRecCache(sig, recs) {
   } catch (e) {}
 }
 
-async function computeRecs(force) {
-  if (recBusy) return;
-  recBusy = true;
-  const sig = pageSignature();
-
-  const cached = readRecCache();
-  if (!force && cached && cached.sig === sig &&
-      Date.now() - cached.at < REC_TTL && cached.recs.length) {
-    recCandidates = cached.recs;
-    recBusy = false;
-    renderRecs();
-    return;
-  }
-
-  const profile_ = buildTasteProfile();
-  tasteProfile = profile_;
-  renderTaste();
-
-  recListEl.innerHTML = '<div class="rec-skel"></div><div class="rec-skel" style="margin-top:9px"></div>';
-  recNoteEl.innerHTML = "Reading your taste profile…";
-
-  // things already on the page are never "new" recommendations
+/* Everything already on the page is never a "new" recommendation.  AniList titles
+   rarely match the user's spelling exactly ("Kono Subarashii Sekai ni Shukufuku wo"
+   vs "KONOSUBA -God's blessing..."), so block by exact normalised title, by
+   significant-token overlap, and by AniList id.  Built once per compute pass and
+   reused by expandRecs(). */
+function buildSeenIndex() {
   const seen = new Set();
   const seenTokens = [];
   for (const l of state.lists) {
@@ -1321,10 +1534,6 @@ async function computeRecs(force) {
   const seenIds = new Set();
   for (const l of state.lists) for (const e of l.entries)
     if (e.source === "anilist" && e.srcId) seenIds.add(Number(e.srcId));
-
-  /* AniList titles rarely match the user's spelling exactly ("Kono Subarashii Sekai ni
-     Shukufuku wo" vs "KONOSUBA -God's blessing..."), so also block by significant-token
-     overlap and by AniList id resolved below. */
   function looksTracked(title) {
     const n = normTitle(title);
     if (!n || seen.has(n)) return true;
@@ -1337,6 +1546,80 @@ async function computeRecs(force) {
     }
     return false;
   }
+  return { seen, seenIds, looksTracked };
+}
+
+/* Score one AniList media object against the current taste profile.  Shared by
+   computeRecs() and expandRecs() so a "load more" batch is ranked exactly like the
+   first page. */
+function scoreMedia(a, votes, W) {
+  let s = 0;
+  const why = [];
+  const gHits = (a.genres || []).filter(g => W.gW.has(g));
+  const tHits = (a.tags || []).filter(t => (t.rank || 0) >= 70 && W.tW.has(t.name)).slice(0, 2);
+  for (const g of gHits) { s += (W.gW.get(g) / W.gMax) * 9; why.push(g); }
+  for (const t of tHits) s += (W.tW.get(t.name) / W.gMax) * 4;
+  s += Math.min(6, (votes.get(a.id) || 0) / W.maxVote * 6);
+  s += ((a.averageScore || 0) / 100) * 5;
+  s += Math.min(3, Math.log10((a.popularity || 1) + 1) * .8);
+  return {
+    source: "anilist", srcId: a.id,
+    title: a.title?.english || a.title?.romaji || "Unknown",
+    cover: a.coverImage?.large, score: a.averageScore,
+    year: a.startDate?.year, format: a.format, episodes: a.episodes,
+    synopsis: stripHtml(a.description), url: a.siteUrl,
+    genres: a.genres || [], tags: (a.tags || []).filter(t => (t.rank || 0) >= 70).map(t => t.name),
+    why: [...new Set([...tHits.map(t => t.name), ...gHits])].slice(0, 3),
+    rank: s, votes: votes.get(a.id) || 0
+  };
+}
+/* Rank order is what the sidebar (and the "one per franchise" rule) rely on; the
+   built-in fallback picks carry no rank, so they sort behind everything scored. */
+function rankOf(c) { return typeof c.rank === "number" ? c.rank : -1; }
+function currentWeights() {
+  const p = tasteProfile || buildTasteProfile();
+  if (!p.topGenres || !p.topGenres.length) return null;
+  return {
+    gW: new Map(p.topGenres.map(([k, v]) => [k, v])),
+    tW: new Map(p.tags),
+    gMax: Math.max(1, ...p.topGenres.map(x => x[1])),
+    maxVote: Math.max(1, ...[...recVotes.values()])
+  };
+}
+function toCandidate(r) {
+  return { source: r.source || null, srcId: r.srcId ?? null, cover: r.cover || null,
+    score: r.score ?? null, year: r.year ?? null, format: r.format ?? null,
+    episodes: r.episodes ?? null, synopsis: r.synopsis || null, url: r.url || null,
+    votes: r.votes || 0, why: r.why || [], ...r, searchId: uid() };
+}
+
+async function computeRecs(force) {
+  if (recBusy) return;
+  recBusy = true;
+  const sig = pageSignature();
+
+  const cached = readRecCache();
+  if (!force && cached && cached.sig === sig &&
+      Date.now() - cached.at < REC_TTL && cached.recs.length) {
+    recCandidates = cached.recs.map(toCandidate);
+    recOffline = false;
+    recShown = REC_PAGE;
+    recBusy = false;
+    renderRecs();
+    return;
+  }
+
+  const profile_ = buildTasteProfile();
+  tasteProfile = profile_;
+  renderTaste();
+
+  recListEl.innerHTML = '<div class="rec-skel"></div><div class="rec-skel" style="margin-top:9px"></div>';
+  recMoreEl.innerHTML = "";          // the previous pool is being replaced
+  recNoteEl.innerHTML = "Reading your taste profile…";
+
+  // things already on the page are never "new" recommendations
+  recSeen = buildSeenIndex();
+  const { seen, seenIds, looksTracked } = recSeen;
 
   let recs = [];
   let netErr = null;
@@ -1408,53 +1691,32 @@ async function computeRecs(force) {
       .filter(id => !seenIds.has(id)).slice(0, 25);
     const details = winners.length ? await fetchDetails(winners) : new Map();
 
-    /* local re-rank */
-    const gW = new Map(tasteProfile.topGenres.map(([k, v]) => [k, v]));
-    const tW = new Map(profile_.tags);
-    const gMax = Math.max(1, ...tasteProfile.topGenres.map(x => x[1]));
-    const maxVote = Math.max(1, ...[...votes.values()]);
+    /* local re-rank — weights are kept on the orchestration state so that
+       expandRecs() can score a second batch against the very same profile. */
+    recVotes = votes;
+    recWeights = {
+      gW: new Map(tasteProfile.topGenres.map(([k, v]) => [k, v])),
+      tW: new Map(profile_.tags),
+      gMax: Math.max(1, ...tasteProfile.topGenres.map(x => x[1])),
+      maxVote: Math.max(1, ...[...votes.values()])
+    };
 
     const scored = [];
-    for (const [id, a] of details) {
+    for (const [, a] of details) {
       if (looksTracked(a.title?.english || a.title?.romaji)) continue;
-      let s = 0;
-      const why = [];
-      const gHits = (a.genres || []).filter(g => gW.has(g));
-      const tHits = (a.tags || []).filter(t => (t.rank || 0) >= 70 && tW.has(t.name)).slice(0, 2);
-      for (const g of gHits) { s += (gW.get(g) / gMax) * 9; why.push(g); }
-      for (const t of tHits) s += (tW.get(t.name) / gMax) * 4;
-      s += Math.min(6, (votes.get(id) || 0) / maxVote * 6);
-      s += ((a.averageScore || 0) / 100) * 5;
-      s += Math.min(3, Math.log10((a.popularity || 1) + 1) * .8);
-      scored.push({
-        source: "anilist", srcId: id,
-        title: a.title?.english || a.title?.romaji || "Unknown",
-        cover: a.coverImage?.large, score: a.averageScore,
-        year: a.startDate?.year, format: a.format, episodes: a.episodes,
-        synopsis: stripHtml(a.description), url: a.siteUrl,
-        genres: a.genres || [], tags: (a.tags || []).filter(t => (t.rank || 0) >= 70).map(t => t.name),
-        why: [...new Set([...tHits.map(t => t.name), ...gHits])].slice(0, 3),
-        rank: s, votes: votes.get(id) || 0
-      });
+      scored.push(scoreMedia(a, votes, recWeights));
     }
+    scored.sort((a, b) => b.rank - a.rank);
     /* AniList splits franchises into many entries ("Demon Slayer: Mugen Train",
-       "...Entertainment District Arc", "...Infinity Castle"). Keep only the strongest
-       result per franchise so one show cannot flood the sidebar. */
-    const FRANCHISE_NOISE = new Set(["season", "movie", "arc", "part", "the", "and", "new",
-      "final", "movie2", "series", "tv", "ona", "special", "first", "second", "third"]);
-    function franchiseKey(title) {
-      const toks = normTitle(title).split(" ").filter(w => w.length > 2 && !FRANCHISE_NOISE.has(w));
-      return toks.slice(0, 2).join(" ") || normTitle(title);
-    }
-    const best = new Map();
-    for (const r of scored.sort((a, b) => b.rank - a.rank)) {
-      const k = franchiseKey(r.title);
-      if (!best.has(k)) best.set(k, r);
-    }
-    recs = [...best.values()].sort((a, b) => b.rank - a.rank).slice(0, 10);
+       "...Entertainment District Arc", "...Infinity Castle").  The raw pool is kept
+       whole here — collapsing it per franchise (and the user's "other seasons"
+       switch) is done at render time, so toggling it needs no refetch. */
+    recs = scored;
+    recOffline = false;
 
     if (!recs.length) {
-      recs = offlineRecs(tasteProfile, seen, 8, looksTracked);
+      recs = offlineRecs(tasteProfile, seen, 20, looksTracked);
+      recOffline = true;
       recNoteEl.innerHTML = netErr
         ? "⚠ Could not reach AniList (" + escapeHtml(netErr.message || "network") +
           ") — these are built-in picks matched to your profile."
@@ -1464,15 +1726,14 @@ async function computeRecs(force) {
       writeRecCache(sig, recs);
     }
   } catch (err) {
-    recs = offlineRecs(tasteProfile, seen, 8, looksTracked);
+    recs = offlineRecs(tasteProfile, seen, 20, looksTracked);
+    recOffline = true;
     recNoteEl.innerHTML = "⚠ Could not reach AniList (" + escapeHtml(err.message || "network") +
       ") — these are built-in picks matched to your profile.";
   }
 
-  recCandidates = recs.map(r => ({ source: r.source || null, srcId: r.srcId ?? null,
-    cover: r.cover || null, score: r.score ?? null, year: r.year ?? null,
-    format: r.format ?? null, episodes: r.episodes ?? null, synopsis: r.synopsis || null,
-    url: r.url || null, votes: 0, why: r.why || [], ...r, searchId: uid() }));
+  recCandidates = recs.map(toCandidate);
+  recShown = REC_PAGE;
   recBusy = false;
   renderRecs();
 }
@@ -1524,15 +1785,43 @@ function renderTaste(enriched) {
   });
 }
 
+/* The candidate pool is filtered at render time: "other seasons" off collapses each
+   franchise to a single entry, on leaves every season/sequel in.  Toggling it is
+   therefore instant and never costs a refetch. */
+function visibleRecs() {
+  if (prefs.recOtherSeasons) return recCandidates;
+  return withoutOtherSeasons(dedupeByFranchise(recCandidates), r => r.title);
+}
+
+/* The built-in fallback pool is bigger than one page, so "load more" must stay
+   available when AniList is unreachable — otherwise the list just stops. */
+function offlineHasMore() {
+  if (!recOffline || !tasteProfile) return false;
+  const have = new Set(recCandidates.map(c => normTitle(c.title)));
+  const idx = recSeen || buildSeenIndex();
+  return offlineRecs(tasteProfile, idx.seen, 40, idx.looksTracked)
+    .some(c => !have.has(normTitle(c.title)));
+}
+
 function renderRecs() {
+  recMoreEl.innerHTML = "";
   if (!recCandidates.length) {
+    recCountEl.textContent = "";
     if (!recBusy) recListEl.innerHTML =
       '<div class="rec-err">Nothing to recommend yet. Rank or add a few anime, then hit Refresh.</div>';
     return;
   }
-  recCountEl.textContent = recCandidates.length + " picks";
+  const visible = visibleRecs();
+  const shown = Math.min(recShown, visible.length);
+  recCountEl.textContent = shown < visible.length
+    ? shown + " of " + visible.length + " picks"
+    : visible.length + " picks";
   recListEl.innerHTML = "";
-  recCandidates.forEach(r => {
+  if (!visible.length) {
+    recListEl.innerHTML = '<div class="rec-err">Every match is another season of something you already ' +
+      "track. Switch “Other seasons” on above to see them.</div>";
+  }
+  visible.slice(0, shown).forEach(r => {
     const div = document.createElement("div");
     div.className = "rec-card"; div.draggable = true; div.dataset.searchId = r.searchId;
     div.title = "Drag into any tier · hover for synopsis";
@@ -1570,6 +1859,113 @@ function renderRecs() {
     });
     recListEl.appendChild(div);
   });
+
+  /* ---- "Load more": reveal the next page, and when the cached pool runs out ask
+     AniList for another batch of candidates scored against the same profile. ---- */
+  const moreLeft = visible.length > shown;
+  const exhausted = !moreLeft && (offlineHasMore() || !recOffline);
+  if (moreLeft || exhausted || recMoreBusy) {
+    const btn = document.createElement("button");
+    btn.className = "rec-more";
+    btn.id = "recMoreBtn";
+    btn.disabled = recMoreBusy;
+    if (recMoreBusy) btn.textContent = "Loading more…";
+    else if (moreLeft) btn.textContent = "Load " + Math.min(REC_PAGE, visible.length - shown) + " more";
+    else btn.textContent = recOffline ? "Load more built-in picks" : "Load more from AniList";
+    btn.title = recOffline
+      ? "Reveal more of the built-in picks"
+      : "Ask AniList for another batch, scored against your taste profile";
+    btn.addEventListener("click", () => {
+      if (recBusy) return;              // a recompute is repainting the panel
+      if (moreLeft) { recShown += REC_PAGE; renderRecs(); }
+      else expandRecs();
+    });
+    recMoreEl.appendChild(btn);
+    if (!moreLeft && !recMoreBusy) {
+      const end = document.createElement("div");
+      end.className = "rec-more-end";
+      end.textContent = "that's the top " + shown + " — load more for further picks";
+      recMoreEl.appendChild(end);
+    }
+  }
+}
+
+/* Fetch a further batch of candidates.  Same genre discovery query as the cold path,
+   but excluding everything already on the page *and* everything already recommended,
+   so the next click genuinely moves on instead of repeating the same list. */
+async function expandRecs() {
+  if (recMoreBusy) return;
+  /* rebuild rather than reuse: entries may have been added since the last pass, and
+     anything now tracked must be excluded from the new batch. */
+  recSeen = buildSeenIndex();
+  recMoreBusy = true;
+  try {
+    renderRecs();                      // inside the try, so the busy flag can never latch
+    /* Built-in fallback pool — no network needed. */
+    if (recOffline) {
+      const have = new Set(recCandidates.map(c => normTitle(c.title)));
+      const all = offlineRecs(tasteProfile || buildTasteProfile(), recSeen.seen, 40, recSeen.looksTracked);
+      const fresh = all.filter(c => !have.has(normTitle(c.title)));
+      if (!fresh.length) {
+        recNoteEl.innerHTML = "No more built-in picks left — hit ↻ Refresh or widen your lists.";
+        return;
+      }
+      recCandidates = recCandidates.concat(fresh.map(toCandidate)).sort((a, b) => rankOf(b) - rankOf(a));
+      recShown += REC_PAGE;
+      recNoteEl.innerHTML = "Loaded " + fresh.length + " more built-in picks.";
+      return;
+    }
+
+    /* A cached pool (page reloaded) has no weights yet — rebuild them from the live
+       profile so a "load more" still talks to AniList instead of falling back. */
+    if (!recWeights) recWeights = currentWeights();
+    if (!recWeights) {
+      recNoteEl.innerHTML = "Add or rank more anime first — the profile is too thin to search by genre.";
+      return;
+    }
+
+    const g = (tasteProfile?.topGenres || []).slice(0, 1).map(x => x[0]);
+    if (!g.length) {
+      recNoteEl.innerHTML = "Add or rank more anime first — the profile is too thin to search by genre.";
+      return;
+    }
+    const have = new Set(recCandidates.map(c => Number(c.srcId)).filter(Boolean));
+    /* Order matters: the 50-slot budget is spent first on what we already
+       recommended, so the query cannot hand back the same page we are sitting on.
+       Tracked ids are the cheaper constraint and fill whatever is left. */
+    const exclude = [...new Set([...have, ...recSeen.seenIds])].slice(0, 50);
+    const d = await anilist(
+      `query($g:[String],$ids:[Int]){Page(perPage:20){media(type:ANIME,isAdult:false,` +
+      `genre_in:$g,id_not_in:$ids,sort:[SCORE_DESC]){id}}}`,
+      { g, ids: exclude }, 12000);
+    const freshIds = (d?.Page?.media || []).map(m => m.id).filter(id => !have.has(id));
+    if (!freshIds.length) {
+      recNoteEl.innerHTML = "AniList had nothing new left for this profile — hit ↻ Refresh to rebuild.";
+      return;
+    }
+    for (const id of freshIds) bump(recVotes, id, 3);
+    recWeights.maxVote = Math.max(1, ...[...recVotes.values()]);
+    const details = await fetchDetails(freshIds);
+    const fresh = [];
+    for (const [, a] of details) {
+      if (recSeen.looksTracked(a.title?.english || a.title?.romaji)) continue;
+      fresh.push(scoreMedia(a, recVotes, recWeights));
+    }
+    fresh.sort((a, b) => b.rank - a.rank);
+    if (!fresh.length) {
+      recNoteEl.innerHTML = "Nothing usable in that batch — hit ↻ Refresh to rebuild.";
+      return;
+    }
+    recCandidates = recCandidates.concat(fresh.map(toCandidate)).sort((a, b) => rankOf(b) - rankOf(a));
+    recShown += REC_PAGE;
+    recNoteEl.innerHTML = "Loaded " + fresh.length + " more picks from AniList.";
+  } catch (e) {
+    recNoteEl.innerHTML = "⚠ Could not load more (" + escapeHtml(e.message || "network") +
+      ") — try again in a moment.";
+  } finally {
+    recMoreBusy = false;
+    renderRecs();
+  }
 }
 
 function candidateToEntry(c, tierId) {
@@ -1583,6 +1979,7 @@ function addCandidateToWatch(c) {
   if (wl.entries.some(e => normTitle(e.title) === normTitle(c.title))) return false;
   wl.entries.push(candidateToEntry(c, null));
   render();
+  showMoveNote(c.title, wl);
   return true;
 }
 function addCandidateToTopTier(c) {
@@ -1593,6 +1990,7 @@ function addCandidateToTopTier(c) {
   if (tl.entries.some(e => normTitle(e.title) === normTitle(c.title))) return null;
   tl.entries.push(candidateToEntry(c, best.id));
   render();
+  showMoveNote(c.title, tl, { tier: best.label });
   return best.label;
 }
 
@@ -1613,18 +2011,39 @@ document.addEventListener("dragstart", ev => {
       JSON.stringify({ type: "search", searchId: rc.dataset.searchId }));
   }
 });
+/* Everything inside the open list that accepts a dropped card. */
+const DROP_ZONE_SEL = ".tier-drop, .drop-zone";
+/* The tab strip itself is the other drop target: dropping a card onto a list's tab
+   moves it into that list — tier list <-> watch list — without opening it first. */
+const TAB_SEL = ".tab[data-list-id]";
 document.addEventListener("dragover", ev => {
-  const zone = ev.target.closest(".tier-drop, .drop-zone");
+  const tab = ev.target.closest?.(TAB_SEL);
+  if (tab) {
+    ev.preventDefault();
+    [...tabsEl.querySelectorAll(".tab-over")].forEach(t => t.classList.remove("tab-over"));
+    if (!tab.classList.contains("active")) tab.classList.add("tab-over");
+    return;
+  }
+  const zone = ev.target.closest(DROP_ZONE_SEL);
   if (zone) { ev.preventDefault(); zone.closest(".list-panel")?.classList.add("dragover"); }
 });
 document.addEventListener("dragleave", ev => {
+  const tab = ev.target.closest?.(TAB_SEL);
+  if (tab && !tab.contains(ev.relatedTarget)) tab.classList.remove("tab-over");
   if (ev.target.closest) {
     const z = ev.target.closest(".list-panel");
     if (z && !z.contains(ev.relatedTarget)) z.classList.remove("dragover");
   }
 });
 document.addEventListener("drop", ev => {
-  const zone = ev.target.closest(".tier-drop, .drop-zone");
+  const tab = ev.target.closest?.(TAB_SEL);
+  if (tab) {
+    ev.preventDefault();
+    tab.classList.remove("tab-over");
+    dropOnTab(tab.dataset.listId, ev);
+    return;
+  }
+  const zone = ev.target.closest(DROP_ZONE_SEL);
   if (!zone) return;
   ev.preventDefault();
   zone.closest(".list-panel")?.classList.remove("dragover");
@@ -1646,7 +2065,9 @@ document.addEventListener("drop", ev => {
     const src = findList(payload.listId);
     const e = src?.entries.find(x => x.id === payload.entryId);
     if (e && src) {
-      if (list.kind === "tier") e.tierId = zone.dataset.tierId || null;
+      /* A watch list has no tiers, so landing there always clears the rank — this is
+         what makes tier list -> watch list -> tier list round-trips work. */
+      e.tierId = list.kind === "tier" ? (zone.dataset.tierId || null) : null;
       if (src.id !== list.id) {
         src.entries = src.entries.filter(x => x.id !== e.id);
         list.entries.push(e);
@@ -1655,6 +2076,64 @@ document.addEventListener("drop", ev => {
     }
   }
 });
+
+/* ---- drop a card onto a list's tab ----
+   The tab strip is the cross-list drop target: drag Re:Zero out of the Isekai tier
+   and onto the "Watch Later" tab and it lands there, without switching lists first.
+   This is a COPY — the card you grabbed stays where it is, so one anime can sit in
+   several lists at once.  (Dragging inside a tier still re-ranks in place.) */
+function dropOnTab(listId, ev) {
+  const list = findList(listId);
+  if (!list) return;
+  let payload;
+  try { payload = JSON.parse(ev.dataTransfer.getData("text/plain")); } catch (e) { return; }
+  /* A tab names a LIST, not a tier, so a copy arrives unranked — the "—" row that
+     every tier list already has.  Rank it yourself by dragging it up from there. */
+  const opts = { tier: list.kind === "tier" ? "unranked" : null, copied: true };
+
+  if (payload.type === "entry") {
+    const src = findList(payload.listId);
+    const e = src?.entries.find(x => x.id === payload.entryId);
+    if (!e || !src) return;
+    if (list.entries.some(x => normTitle(x.title) === normTitle(e.title))) {
+      showMoveNote(e.title, list, { already: true });
+      return;
+    }
+    list.entries.push({ ...e, id: uid(), tierId: null, syncTries: 0 });
+    render();
+    showMoveNote(e.title, list, opts);
+  } else if (payload.type === "search") {
+    const cand = findCandidate(payload.searchId);
+    if (!cand) return;
+    if (list.entries.some(x => normTitle(x.title) === normTitle(cand.title))) {
+      showMoveNote(cand.title, list, { already: true });
+      return;
+    }
+    list.entries.push({ ...blankEntry(cand.title), source: cand.source, srcId: cand.srcId,
+      cover: cand.cover, score: cand.score, year: cand.year, format: cand.format,
+      episodes: cand.episodes, synopsis: cand.synopsis, url: cand.url,
+      tierId: null, metaDone: true });
+    render();
+    showMoveNote(cand.title, list, opts);
+  }
+}
+let moveNoteTimer = null;
+function showMoveNote(title, list, opts) {
+  if (!moveNoteEl) return;
+  const o = opts || {};
+  if (o.already) {
+    moveNoteEl.innerHTML = "ℹ already in " + escapeHtml(list.name);
+    moveNoteEl.title = "";
+  } else {
+    const tier = o.tier ? ' <span style="color:var(--accent)">· ' + escapeHtml(o.tier) + "</span>" : "";
+    moveNoteEl.innerHTML = (o.copied ? "⧉ " : "✓ ") + escapeHtml(title) +
+      " → " + escapeHtml(list.name) + tier;
+    moveNoteEl.title = o.copied ? "Copied — the card you dragged is still in its own list." : "";
+  }
+  moveNoteEl.style.display = "block";
+  clearTimeout(moveNoteTimer);
+  moveNoteTimer = setTimeout(() => { moveNoteEl.style.display = "none"; }, 2800);
+}
 
 /* ==================== REMOVE / NOTES ==================== */
 document.addEventListener("click", ev => {
@@ -1745,8 +2224,12 @@ async function doSearch() {
 }
 function renderSearchResults() {
   if (!searchCandidates.length) { resultsEl.innerHTML = ""; return; }
+  /* Search has its own "other seasons" switch, independent of the one in the
+     recommendations panel — flipping it re-filters instantly, no refetch. */
+  const pool = prefs.searchOtherSeasons ? searchCandidates : withoutOtherSeasons(searchCandidates, c => c.title);
+  const hidden = searchCandidates.length - pool.length;
   resultsEl.innerHTML = "";
-  searchCandidates.forEach(c => {
+  pool.forEach(c => {
     const div = document.createElement("div");
     div.className = "result-card"; div.draggable = true; div.dataset.searchId = c.searchId;
     div.innerHTML =
@@ -1758,6 +2241,8 @@ function renderSearchResults() {
       "</div>" +
       '<div class="rc-title">' + escapeHtml(c.title) + "</div>" +
       '<div class="rc-year">' + escapeHtml(SRC_LABEL[c.source] || "") + '</div>' +
+      (hasSeasonMarker(c.title)
+        ? '<div class="rc-year" style="color:var(--accent)">other season</div>' : "") +
       "<button class=\"rc-add\">+ Watch Later</button>";
     div.querySelector(".rc-add").addEventListener("click", ev => {
       ev.stopPropagation();
@@ -1772,6 +2257,14 @@ function renderSearchResults() {
     });
     resultsEl.appendChild(div);
   });
+  if (hidden > 0) {
+    const note = document.createElement("div");
+    note.className = "loading";
+    note.style.gridColumn = "1 / -1";
+    note.textContent = hidden + " other season" + (hidden > 1 ? "s" : "") +
+      " hidden — turn “Other seasons” on to see " + (hidden > 1 ? "them" : "it") + ".";
+    resultsEl.appendChild(note);
+  }
 }
 function addWatchSilent() {
   state.lists.push({ id: uid(), name: "Watch Later", kind: "watch", tiers: [], entries: [] });
