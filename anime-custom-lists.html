@@ -1,0 +1,1892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Anime Tier Tracker</title>
+<style>
+  :root {
+    --bg: #12101a;
+    --panel: #1b1826;
+    --panel2: #221e30;
+    --border: #34304a;
+    --text: #e8e5f2;
+    --muted: #9b96b5;
+    --accent: #a78bfa;
+    --good: #2ecc71;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(1000px 500px at 85% -10%, rgba(167,139,250,.14), transparent),
+      radial-gradient(800px 400px at 0% 0%, rgba(255,77,109,.08), transparent);
+  }
+  header {
+    padding: 14px 24px; display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid var(--border); flex-wrap: wrap;
+  }
+  header h1 { font-size: 1.3rem; margin: 0; }
+  header h1 span { color: var(--accent); }
+  header .spacer { flex: 1; }
+  header button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: .85rem;
+  }
+  header button:hover { border-color: var(--accent); }
+  #saveBtn { border-color: var(--good) !important; color: var(--good); font-weight: 700; }
+  #saveState { font-size: .75rem; color: var(--muted); }
+  .api-pill {
+    font-size: .72rem; padding: 4px 10px; border-radius: 20px;
+    background: var(--panel2); border: 1px solid var(--border); color: var(--muted);
+  }
+  .api-pill b { color: var(--good); }
+
+  .wrap { display: grid; grid-template-columns: 340px minmax(0, 1fr) 360px; min-height: calc(100vh - 60px); }
+  .sidebar { border-right: 1px solid var(--border); padding: 20px; background: rgba(255,255,255,.015); }
+  .main { padding: 18px 26px 60px; }
+
+  /* search */
+  .search-box { display: flex; gap: 8px; }
+  .search-box input {
+    flex: 1; min-width: 0; width: 100%;
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    padding: 10px 12px; border-radius: 8px; outline: none; font-size: .95rem;
+  }
+  .search-box button { flex-shrink: 0; }
+  .search-box input:focus { border-color: var(--accent); }
+  .search-box button {
+    background: var(--accent); color: #1b1826; border: 0; font-weight: 700;
+    padding: 0 16px; border-radius: 8px; cursor: pointer;
+  }
+  .results { margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .result-card {
+    position: relative; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; cursor: grab; transition: transform .12s, border-color .12s;
+  }
+  .result-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .result-card img { width: 100%; height: 190px; object-fit: cover; display: block; }
+  .result-card .rc-body { padding: 8px; }
+  .score-pill {
+    background: var(--good); color: #08240f; font-weight: 800; font-size: .72rem;
+    padding: 2px 7px; border-radius: 6px; white-space: nowrap;
+  }
+  .score-pill.na { background: #7a7f8a; color: #111; }
+  .rc-title { font-size: .78rem; margin-top: 6px; line-height: 1.3; color: var(--text); }
+  .rc-year { font-size: .7rem; color: var(--muted); margin-top: 3px; }
+  .rc-add {
+    width: 100%; margin-top: 8px; background: transparent; border: 1px solid var(--accent);
+    color: var(--accent); border-radius: 6px; padding: 5px 0; cursor: pointer; font-size: .72rem;
+  }
+  .rc-add:hover { background: var(--accent); color: #1b1826; }
+  .loading { color: var(--muted); font-size: .85rem; margin-top: 12px; }
+  .drop-hint {
+    border: 1px dashed var(--border); border-radius: 10px; padding: 12px;
+    color: var(--muted); font-size: .78rem; text-align: center; margin-top: 16px; line-height: 1.5;
+  }
+
+  /* list tabs */
+  .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; align-items: center; }
+  .tab {
+    background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+    padding: 8px 16px; border-radius: 9px; cursor: pointer; font-size: .85rem; user-select: none;
+  }
+  .tab:hover { border-color: var(--accent); color: var(--text); }
+  .tab.active { background: var(--accent); color: #1b1826; font-weight: 700; border-color: var(--accent); }
+  .tab .del {
+    margin-left: 8px; color: inherit; opacity: .55; cursor: pointer;
+  }
+  .tab .del:hover { opacity: 1; }
+  .tab.new-tab { border-style: dashed; }
+
+  /* watch list panel */
+  .list-panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  .list-panel h2 { margin: 0 0 10px; font-size: 1.05rem; }
+  .list-panel h2 small { color: var(--muted); font-weight: 400; font-size: .8rem; }
+  .drop-zone {
+    min-height: 60px; padding: 6px; display: flex; flex-wrap: wrap;
+    gap: 8px; align-content: flex-start; border-radius: 8px;
+  }
+  .list-panel.dragover { border-color: var(--accent); background: rgba(167,139,250,.07); }
+
+  /* tier rows */
+  .tier-row { display: flex; align-items: stretch; margin-bottom: 10px; }
+  .tier-label {
+    flex: 0 0 78px; display: flex; align-items: center; justify-content: center;
+    font-weight: 900; font-size: 1.15rem; color: #16121f; border-radius: 10px 0 0 10px;
+    cursor: pointer; position: relative; user-select: none;
+  }
+  .tier-label .tdel {
+    position: absolute; top: 4px; right: 6px; font-size: 10px; color: #16121f;
+    opacity: 0; cursor: pointer; font-weight: 900;
+  }
+  .tier-label:hover .tdel { opacity: .6; }
+  .tier-label .tdel:hover { opacity: 1; }
+  .tier-drop {
+    flex: 1; background: var(--panel); border: 1px solid var(--border); border-left: none;
+    border-radius: 0 10px 10px 0; min-height: 96px; padding: 8px;
+    display: flex; flex-wrap: wrap; gap: 8px; align-content: flex-start;
+  }
+  .tier-row.dragover .tier-drop { background: rgba(167,139,250,.08); border-color: var(--accent); }
+  .unranked .tier-label { background: #4a4560; color: #d5d0ea; font-size: .8rem; }
+
+  /* item card */
+  .item {
+    position: relative; width: 128px; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 9px; overflow: hidden; cursor: grab;
+  }
+  .item:hover { border-color: var(--accent); }
+  .item:active { cursor: grabbing; }
+  .item img { width: 100%; height: 148px; object-fit: cover; display: block; }
+  .item .noimg {
+    width: 100%; height: 148px; display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: .65rem; text-align: center; padding: 6px;
+  }
+  .item .it-title { font-size: .73rem; padding: 6px 7px 3px; line-height: 1.25; }
+  .item .it-score { font-size: .7rem; font-weight: 800; color: var(--good); padding: 0 7px 7px; }
+  .item .it-score.na { color: var(--muted); font-weight: 400; }
+  .item .tier-chip {
+    position: absolute; top: 6px; left: 6px; width: 20px; height: 20px; border-radius: 5px;
+    background: rgba(0,0,0,.5); color: #fff; font-size: 10px; font-weight: 900;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .item .notes-dot {
+    position: absolute; bottom: 30px; right: 6px; font-size: 11px; opacity: .9;
+  }
+  .item .remove-btn {
+    position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; border: 0;
+    border-radius: 5px; background: rgba(0,0,0,.45); color: #ff6b81; font-size: 12px;
+    font-weight: 900; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    visibility: hidden;
+  }
+  .item:hover .remove-btn { visibility: visible; }
+  .item .remove-btn:hover { background: rgba(0,0,0,.7); }
+
+  /* tooltip */
+  .tooltip {
+    position: fixed; z-index: 1000; width: 330px; background: #1d1a2b;
+    border: 1px solid var(--accent); border-radius: 12px; padding: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.55); pointer-events: none; display: none;
+    font-size: .8rem; line-height: 1.45;
+  }
+  .tooltip .tt-head { display: flex; gap: 10px; }
+  .tooltip .tt-head img { width: 76px; height: 108px; object-fit: cover; border-radius: 7px; flex-shrink: 0; }
+  .tooltip .tt-title { font-weight: 700; font-size: .88rem; margin-bottom: 5px; }
+  .tooltip .tt-stats { color: var(--muted); font-size: .74rem; }
+  .tooltip .tt-stats b { color: var(--good); }
+  .tooltip .tt-src {
+    display: inline-block; margin-top: 5px; font-size: .65rem; color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 4px; padding: 1px 6px;
+  }
+  .tooltip .tt-syn { margin-top: 9px; color: #cfcbe2; max-height: 150px; overflow-y: auto; }
+  .tooltip .tt-link { margin-top: 8px; display: inline-block; color: var(--accent); font-size: .74rem; }
+
+  /* modal */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 2000;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 20px; width: min(480px, 92vw); max-height: 70vh; overflow-y: auto;
+  }
+  .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .modal-head h3 { margin: 0; font-size: 1.05rem; }
+  .modal-close {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    border-radius: 6px; width: 28px; height: 28px; cursor: pointer;
+  }
+  .modal-close:hover { border-color: #ff6b81; color: #ff6b81; }
+  .save-list { display: flex; flex-direction: column; gap: 8px; }
+  .save-item {
+    display: flex; align-items: center; gap: 10px; background: var(--panel2);
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px;
+  }
+  .save-item.current { border-color: var(--good); }
+  .save-item .si-name { font-weight: 700; }
+  .save-item .si-date { color: var(--muted); font-size: .75rem; margin-top: 2px; }
+  .save-item .si-actions { margin-left: auto; display: flex; gap: 6px; }
+  .save-item .si-actions button {
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: .75rem;
+  }
+  .save-item .si-actions button:hover { border-color: var(--accent); }
+  .save-item .si-actions button.del:hover { border-color: #ff6b81; color: #ff6b81; }
+  .empty-note { color: var(--muted); font-size: .85rem; text-align: center; padding: 24px 0; }
+
+  /* =======================================================
+     RIGHT SIDEBAR — taste profile + recommendations
+     ======================================================= */
+  .sidebar-right {
+    border-left: 1px solid var(--border); padding: 16px; background: rgba(255,255,255,.015);
+    display: flex; flex-direction: column; gap: 14px; min-width: 0;
+    position: sticky; top: 0; align-self: start;
+    max-height: calc(100vh - 60px); overflow-y: auto;
+  }
+  .sidebar-right::-webkit-scrollbar { width: 8px; }
+  .sidebar-right::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .side-head { display: flex; align-items: center; gap: 8px; }
+  .side-head h2 {
+    margin: 0; font-size: .82rem; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--muted); font-weight: 800;
+  }
+  .side-head .spacer { flex: 1; }
+  .mini-btn {
+    background: var(--panel2); color: var(--muted); border: 1px solid var(--border);
+    border-radius: 7px; padding: 4px 9px; cursor: pointer; font-size: .7rem; font-weight: 700;
+  }
+  .mini-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+  .mini-btn:disabled { opacity: .45; cursor: default; }
+
+  .side-panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+  }
+
+  /* stat tiles */
+  .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .stat {
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 9px;
+    padding: 8px 10px; min-width: 0;
+  }
+  .stat .sv {
+    font-size: 1.05rem; font-weight: 800; color: var(--accent); line-height: 1.15;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .stat .sl {
+    font-size: .62rem; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .07em; margin-top: 3px;
+  }
+
+  /* taste bars */
+  .taste-sub {
+    font-size: .66rem; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--muted); margin: 12px 0 7px; font-weight: 800;
+  }
+  .taste-row { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+  .taste-name {
+    flex: 0 0 84px; font-size: .71rem; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .taste-track { flex: 1; height: 7px; background: var(--panel2); border-radius: 4px; overflow: hidden; }
+  .taste-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--accent), #ff4d6d); }
+  .taste-pct { flex: 0 0 30px; text-align: right; font-size: .67rem; color: var(--muted); }
+
+  /* recommendation cards */
+  .rec-list { display: flex; flex-direction: column; gap: 9px; }
+  .rec-card {
+    position: relative; display: flex; gap: 9px; background: var(--panel2);
+    border: 1px solid var(--border); border-radius: 10px; padding: 8px; cursor: grab;
+    transition: transform .12s, border-color .12s;
+  }
+  .rec-card:hover { border-color: var(--accent); transform: translateX(-2px); }
+  .rec-card:active { cursor: grabbing; }
+  .rec-card img {
+    width: 62px; height: 88px; object-fit: cover; border-radius: 6px;
+    flex-shrink: 0; background: var(--border);
+  }
+  .rec-card .rc-noimg {
+    width: 62px; height: 88px; flex-shrink: 0; border-radius: 6px; background: var(--panel);
+    display: flex; align-items: center; justify-content: center; color: var(--muted);
+    font-size: .6rem; text-align: center; padding: 4px;
+  }
+  .rec-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+  .rec-title {
+    font-size: .76rem; font-weight: 700; line-height: 1.28; color: var(--text);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .rec-meta {
+    font-size: .66rem; color: var(--muted);
+    display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+  }
+  .rec-score { color: var(--good); font-weight: 800; }
+  .rec-why { display: flex; gap: 4px; flex-wrap: wrap; }
+  .why-chip {
+    font-size: .58rem; padding: 1px 6px; border-radius: 20px; background: rgba(167,139,250,.16);
+    color: var(--accent); border: 1px solid rgba(167,139,250,.35); white-space: nowrap;
+  }
+  .why-chip.hit { background: rgba(46,204,113,.14); color: var(--good); border-color: rgba(46,204,113,.35); }
+  .rec-actions { display: flex; gap: 6px; margin-top: 2px; }
+  .rec-actions button {
+    flex: 1; background: transparent; border: 1px solid var(--accent); color: var(--accent);
+    border-radius: 6px; padding: 4px 0; cursor: pointer; font-size: .67rem; font-weight: 700;
+  }
+  .rec-actions button:hover { background: var(--accent); color: #1b1826; }
+  .rec-actions button.added { background: var(--good); border-color: var(--good); color: #08240f; }
+
+  .rec-note { font-size: .68rem; color: var(--muted); line-height: 1.5; margin-top: 8px; }
+  .rec-skel { height: 104px; border-radius: 10px; background: var(--panel2); overflow: hidden; position: relative; }
+  .rec-skel::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.06), transparent);
+    animation: shimmer 1.15s infinite;
+  }
+  @keyframes shimmer { 100% { transform: translateX(100%); } }
+  .rec-err {
+    font-size: .73rem; color: #ff6b81; line-height: 1.5;
+    background: rgba(255,107,129,.08); border: 1px solid rgba(255,107,129,.3);
+    border-radius: 8px; padding: 9px 10px;
+  }
+  .src-toggle {
+    display: flex; gap: 5px; margin-top: 9px; flex-wrap: wrap;
+  }
+  .src-toggle button {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: .66rem; font-weight: 700;
+  }
+  .src-toggle button.on { border-color: var(--accent); color: var(--accent); }
+
+  @media (max-width: 1400px) {
+    .wrap { grid-template-columns: 320px minmax(0, 1fr); }
+    .sidebar-right {
+      grid-column: 1 / -1; border-left: none; border-top: 1px solid var(--border);
+      flex-direction: row; flex-wrap: wrap; align-items: flex-start;
+      position: static; max-height: none; overflow: visible;
+    }
+    .sidebar-right > .side-panel { flex: 1 1 300px; }
+    .sidebar-right > .side-head { flex: 1 1 100%; }
+  }
+  @media (max-width: 900px) {
+    .wrap { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+    .sidebar-right { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🌸 Anime <span>Tier Tracker</span></h1>
+  <span class="api-pill" id="apiPill">API: checking…</span>
+  <div class="spacer"></div>
+  <span id="saveState"></span>
+  <button id="saveBtn">💾 Save</button>
+  <button id="loadBtn">📂 Load</button>
+  <button id="exportBtn">⬇ Markdown</button>
+  <button id="exportJsonBtn">⬇ JSON</button>
+  <button id="importBtn">⬆ Import</button>
+  <input type="file" id="importFile" accept=".json" style="display:none">
+</header>
+
+<div class="wrap">
+  <aside class="sidebar">
+    <div class="search-box">
+      <input id="searchInput" placeholder="Search anime…" autocomplete="off">
+      <button id="searchBtn">Search</button>
+    </div>
+    <div class="results" id="results"></div>
+    <div class="drop-hint">
+      Live search via AniList → Kitsu → MAL (auto-failover).<br>
+      Drag results into any tier or watch list.<br>
+      Hover = synopsis & score · dbl-click card = notes · dbl-click tier label = rename.<br>
+      <b style="color:var(--accent)">Right panel</b> builds recommendations from
+      your tiers + watch list and scores.
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="tabs" id="tabs"></div>
+    <div id="listsArea"></div>
+  </main>
+
+  <aside class="sidebar-right" id="recSidebar">
+    <div class="side-head">
+      <h2>✦ Your Taste</h2>
+      <div class="spacer"></div>
+      <button class="mini-btn" id="recRefresh" title="Recompute recommendations">↻ Refresh</button>
+    </div>
+
+    <div class="side-panel">
+      <div class="stat-grid" id="statGrid"></div>
+      <div id="tasteBars"></div>
+      <div class="src-toggle" id="tasteSources" title="Which lists feed the taste model"></div>
+    </div>
+
+    <div class="side-panel">
+      <div class="side-head" style="margin-bottom:10px">
+        <h2>🔮 Recommended</h2>
+        <div class="spacer"></div>
+        <span id="recCount" style="font-size:.68rem;color:var(--muted)"></span>
+      </div>
+      <div class="rec-list" id="recList"></div>
+      <div class="rec-note" id="recNote"></div>
+    </div>
+  </aside>
+</div>
+
+<div class="modal-backdrop" id="loadModal" style="display:none">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>📂 Save Slots</h3>
+      <button class="modal-close" id="closeLoadModal">✕</button>
+    </div>
+    <button id="newSlotBtn" style="width:100%;margin-bottom:12px;padding:8px;background:var(--panel2);border:1px dashed var(--border);color:var(--text);border-radius:8px;cursor:pointer">＋ Save current as new slot</button>
+    <div class="save-list" id="saveList"></div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+"use strict";
+
+/* =========================================================
+   API LAYER — multi-provider with auto-failover + re-probe
+   ========================================================= */
+const API_TIMEOUT = 8000;
+
+function fetchWithTimeout(url, opts) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), opts?.timeout || API_TIMEOUT);
+  return fetch(url, { ...opts, signal: ctl.signal }).finally(() => clearTimeout(t));
+}
+function stripHtml(s) { return (s || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim(); }
+
+const ANILIST = {
+  id: "anilist", label: "AniList",
+  async ping() {
+    const t0 = Date.now();
+    const r = await fetchWithTimeout("https://graphql.anilist.co", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "query{Page(perPage:1){media(type:ANIME){id}}}" })
+    });
+    if (!r.ok) throw new Error("anilist ping " + r.status);
+    return Date.now() - t0;
+  },
+  async search(q) {
+    const r = await fetchWithTimeout("https://graphql.anilist.co", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: `query($s:String){Page(perPage:12){media(search:$s,type:ANIME,isAdult:false){
+          id title{romaji english} averageScore episodes seasonYear format
+          coverImage{large} description siteUrl}}}`,
+        variables: { s: q }
+      })
+    });
+    if (!r.ok) throw new Error("anilist " + r.status);
+    const d = await r.json();
+    return (d.data?.Page?.media || []).map(a => ({
+      source: "anilist", srcId: a.id,
+      title: a.title.english || a.title.romaji,
+      cover: a.coverImage?.large, score: a.averageScore,
+      year: a.seasonYear, format: a.format, episodes: a.episodes,
+      synopsis: stripHtml(a.description), url: a.siteUrl
+    }));
+  }
+};
+
+const KITSU = {
+  id: "kitsu", label: "Kitsu",
+  async ping() {
+    const t0 = Date.now();
+    const r = await fetchWithTimeout("https://kitsu.io/api/edge/anime?page%5Blimit%5D=1");
+    if (!r.ok) throw new Error("kitsu ping " + r.status);
+    return Date.now() - t0;
+  },
+  async search(q) {
+    const r = await fetchWithTimeout(
+      "https://kitsu.io/api/edge/anime?filter%5Btext%5D=" + encodeURIComponent(q) + "&page%5Blimit%5D=12");
+    if (!r.ok) throw new Error("kitsu " + r.status);
+    const d = await r.json();
+    return (d.data || []).map(a => ({
+      source: "kitsu", srcId: a.id,
+      title: a.attributes?.canonicalTitle || a.attributes?.titles?.en,
+      cover: a.attributes?.posterImage?.medium || a.attributes?.posterImage?.small,
+      score: a.attributes?.averageRating ? Math.round(parseFloat(a.attributes.averageRating)) : null,
+      year: (a.attributes?.startDate || "").slice(0, 4) || null,
+      format: a.attributes?.subtype, episodes: a.attributes?.episodeCount,
+      synopsis: stripHtml(a.attributes?.synopsis),
+      url: "https://kitsu.io/anime/" + (a.attributes?.slug || a.id)
+    }));
+  }
+};
+
+const JIKAN = {
+  id: "jikan", label: "MAL (Jikan)",
+  async ping() {
+    const t0 = Date.now();
+    const r = await fetchWithTimeout("https://api.jikan.moe/v4/anime/1");
+    if (!r.ok) throw new Error("jikan ping " + r.status);
+    return Date.now() - t0;
+  },
+  async search(q) {
+    const r = await fetchWithTimeout(
+      "https://api.jikan.moe/v4/anime?q=" + encodeURIComponent(q) + "&limit=12&sfw=true");
+    if (!r.ok) throw new Error("jikan " + r.status);
+    const d = await r.json();
+    return (d.data || []).map(a => ({
+      source: "mal", srcId: a.mal_id,
+      title: a.title_english || a.title,
+      cover: a.images?.jpg?.large_image_url || a.images?.jpg?.image_url,
+      score: a.score, rank: a.rank,
+      year: a.year || (a.aired?.from || "").slice(0, 4),
+      format: a.type, episodes: a.episodes,
+      synopsis: stripHtml(a.synopsis),
+      url: "https://myanimelist.net/anime/" + a.mal_id
+    }));
+  }
+};
+
+const PROVIDERS = [ANILIST, KITSU, JIKAN];
+const apiState = {};           // id -> {alive, ms}
+let apiOrder = PROVIDERS.slice();
+let probing = false;
+
+async function probeProviders() {
+  if (probing) return;
+  probing = true;
+  const res = await Promise.allSettled(PROVIDERS.map(p => p.ping()));
+  PROVIDERS.forEach((p, i) => {
+    apiState[p.id] = { alive: res[i].status === "fulfilled",
+                       ms: res[i].status === "fulfilled" ? res[i].value : Infinity };
+  });
+  apiOrder = PROVIDERS.slice().sort((a, b) =>
+    (apiState[a.id]?.alive ? apiState[a.id].ms : 1e9) -
+    (apiState[b.id]?.alive ? apiState[b.id].ms : 1e9));
+  probing = false;
+  updateApiPill();
+}
+function updateApiPill() {
+  const pill = document.getElementById("apiPill");
+  pill.innerHTML = "API: " + PROVIDERS.map(p => {
+    const alive = apiState[p.id]?.alive;
+    return '<span style="opacity:' + (alive ? 1 : .45) + ';color:' + (alive ? "var(--good)" : "#ff6b81") + '">' +
+      p.label.split(" ")[0] + (alive ? " ✓" : " ✗") + "</span>";
+  }).join(" · ");
+}
+/* retry failed calls with next provider; keep probing dead ones in background */
+async function apiSearch(q) {
+  for (const p of apiOrder) {
+    if (!apiState[p.id]?.alive) continue;
+    try {
+      const r = await p.search(q);
+      if (r.length || q) return r;
+    } catch (e) {
+      apiState[p.id].alive = false;          // dead — failover
+      setTimeout(() => probeProviders(), 100);
+    }
+  }
+  return [];
+}
+setInterval(() => probeProviders(), 45000);  // re-ping: revive if an API comes back
+
+/* =========================================================
+   DATA MODEL
+   lists: [{ id, name, kind: "tier"|"watch", tiers: [{id,label}] (tier only),
+             entries: [{ id, source, srcId, title, cover, score, year, format,
+                         episodes, synopsis, url, tierId, notes, metaDone }] }]
+   ========================================================= */
+const SAVE_PREFIX = "animeTrackerSlot_";
+const INDEX_KEY = "animeTrackerSaveIndex";
+const DEFAULT_SLOT = "Default";
+const LEGACY_KEY = "animeTrackerData_v2";
+const LEGACY_V1  = "animeTrackerData_v1";
+const DEFAULT_TIERS = ["SS","S","A","B","C","D","F"];
+const TIER_COLORS = ["#ffd700","#ff8c1a","#ff4d6d","#b04dff","#3fa7ff","#35c98a","#7a7f8a",
+  "#00c2c7","#c9b458","#88e0f0","#d38ea9","#9db24f","#5fb0ff","#e07be0"];
+const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+const ISEKAI_SEED = {
+  SS: ["Re:Zero kara hajimeru isekai seikatsu","Kono Subarashii Sekai ni Shukufuku wo"],
+  A:  ["Hell Mode: The Hardcore Gamer Dominates in Another World","Reincarnated in a Dating Sim",
+       "Mushoku Tensei: Jobless Reincarnation"],
+  B:  ["That Time I Got Reincarnated as a Slime","Redo of Healer","Eminence in Shadow","Overlord"],
+  C:  ["Is it Wrong to Pick Up Girls in a Dungeon?","Sword Art Online",
+       "Life of a Middle-Aged Online Shopper in Another World","Loner Life in Another World",
+       "Jack of All Trades, Party of None","Harem in the Labyrinth"],
+  D:  ["Farming Life in Another World","Noble Reincarnation",
+       "Arifureta: From Commonplace to World's Strongest"],
+  F:  ["In Another World with My Smartphone","Reincarnated as a Vending Machine"]
+};
+const WATCH_SEED = ["How Not to Summon a Demon Lord","The Rising of the Shield Hero","No Game No Life",
+  "Gate: Thus the JSDF Fought There","Grimgar of Fantasy and Ash","Log Horizon",
+  "Tsukimichi: Moonlit Fantasy","The World's Finest Assassin Gets Reincarnated in Another World as an Aristocrat",
+  "Cautious Hero: The Hero is Overpowered but Overly Cautious","By the Grace of the Gods",
+  "The Vision of Escaflowne","Wandering Witch: The Journey of Elaina","Kuma Kuma Kuma Bear",
+  "Parallel World Pharmacy","Combatants Will Be Dispatched!","Isekai Cheat Magician",
+  "Wise Man's Grandchild","Outbreak Company","Didn't I Say to Make My Abilities Average in the Next Life?!",
+  "Dragon Goes House-Hunting"];
+
+function blankEntry(title) {
+  return { id: uid(), source: null, srcId: null, title, cover: null, score: null,
+           year: null, format: null, episodes: null, synopsis: null, url: null,
+           tierId: null, notes: "", metaDone: false };
+}
+function freshState() {
+  const isekai = {
+    id: uid(), name: "Isekai", kind: "tier",
+    tiers: DEFAULT_TIERS.map(t => ({ id: uid(), label: t })),
+    entries: []
+  };
+  for (const t of isekai.tiers)
+    (ISEKAI_SEED[t.label] || []).forEach(title =>
+      isekai.entries.push({ ...blankEntry(title), tierId: t.id }));
+  const wl = { id: uid(), name: "Watch Later", kind: "watch", tiers: [],
+               entries: WATCH_SEED.map(blankEntry) };
+  return { version: 2, active: isekai.id, lists: [isekai, wl] };
+}
+function migrateV1(raw) {
+  // convert old flat entries (place: "tier-SS" / "watchlater") into new schema
+  const isekai = { id: uid(), name: "Isekai", kind: "tier",
+                   tiers: DEFAULT_TIERS.map(t => ({ id: uid(), label: t })), entries: [] };
+  const wl = { id: uid(), name: "Watch Later", kind: "watch", tiers: [], entries: [] };
+  for (const e of raw.entries) {
+    const ne = { ...blankEntry(e.title), source: e.malId ? "mal" : null, srcId: e.malId,
+                 cover: e.poster, score: e.score, year: e.year, format: e.type,
+                 episodes: e.episodes, synopsis: e.synopsis, metaDone: !!e.metaDone,
+                 notes: e.notes || "" };
+    if (e.place === "watchlater" || !e.place?.startsWith("tier-")) wl.entries.push(ne);
+    else {
+      const lbl = e.place.slice(5);
+      const t = isekai.tiers.find(x => x.label === lbl);
+      ne.tierId = t ? t.id : isekai.tiers[isekai.tiers.length - 1].id;
+      isekai.entries.push(ne);
+    }
+  }
+  return { version: 2, active: isekai.id, lists: [isekai, wl] };
+}
+/* ==================== SAVE SLOTS ==================== */
+const saveStateEl = document.getElementById("saveState");
+
+function slotKey(name) { return SAVE_PREFIX + name; }
+function getSaveIndex() {
+  try { return JSON.parse(localStorage.getItem(INDEX_KEY) || "[]"); }
+  catch (e) { return []; }
+}
+function setSaveIndex(idx) {
+  try { localStorage.setItem(INDEX_KEY, JSON.stringify(idx)); } catch (e) {}
+}
+function listSaves() {
+  return getSaveIndex().sort((a, b) => b.savedAt - a.savedAt);
+}
+function writeSlot(name) {
+  try {
+    localStorage.setItem(slotKey(name), JSON.stringify(state));
+    const idx = getSaveIndex();
+    const ex = idx.find(s => s.name === name);
+    if (ex) ex.savedAt = Date.now();
+    else idx.push({ name, savedAt: Date.now() });
+    setSaveIndex(idx);
+    currentSlot = name;
+  } catch (e) {
+    saveStateEl.textContent = "✗ save failed: " + e.message;
+  }
+}
+/* A corrupt/hand-edited save must not take the whole page down: normalise the shape
+   that every render path relies on (state.lists is an array of lists with arrays of
+   entries/tiers).  Returns null when the payload is unusable so callers fall back
+   to freshState(). */
+function sanitizeState(d) {
+  if (!d || !Array.isArray(d.lists)) return null;
+  d.lists = d.lists.filter(l => l && typeof l === "object").map(l => ({
+    id: l.id || uid(),
+    name: typeof l.name === "string" ? l.name : "Untitled",
+    kind: l.kind === "watch" ? "watch" : "tier",
+    tiers: Array.isArray(l.tiers) ? l.tiers.filter(t => t && t.id)
+      .map(t => ({ id: t.id, label: String(t.label ?? "?") })) : [],
+    entries: Array.isArray(l.entries) ? l.entries.filter(e => e && typeof e === "object") : []
+  }));
+  if (!d.lists.length) d.lists = [];
+  if (!d.lists.some(l => l.id === d.active)) d.active = d.lists[0]?.id ?? null;
+  return d;
+}
+function readSlot(name) {
+  const raw = localStorage.getItem(slotKey(name));
+  if (!raw) return null;
+  try { return sanitizeState(JSON.parse(raw)); } catch (e) { return null; }
+}
+function deleteSlot(name) {
+  localStorage.removeItem(slotKey(name));
+  setSaveIndex(getSaveIndex().filter(s => s.name !== name));
+  if (currentSlot === name) currentSlot = null;
+}
+
+// Migrate legacy single-slot storage into named slots
+(function migrateLegacy() {
+  let migrated = null;
+  const v2 = localStorage.getItem(LEGACY_KEY);
+  if (v2) {
+    try { migrated = JSON.parse(v2); } catch (e) {}
+    localStorage.removeItem(LEGACY_KEY);
+  }
+  if (!migrated) {
+    const v1 = localStorage.getItem(LEGACY_V1);
+    if (v1) {
+      try { migrated = migrateV1(JSON.parse(v1)); } catch (e) {}
+      localStorage.removeItem(LEGACY_V1);
+    }
+  }
+  if (migrated && !localStorage.getItem(slotKey(DEFAULT_SLOT))) {
+    try {
+      localStorage.setItem(slotKey(DEFAULT_SLOT), JSON.stringify(migrated));
+      setSaveIndex([{ name: DEFAULT_SLOT, savedAt: Date.now() }]);
+    } catch (e) {}
+  }
+})();
+
+let currentSlot = listSaves()[0]?.name || DEFAULT_SLOT;
+let state = readSlot(currentSlot);
+if (!state || !Array.isArray(state.lists) || !state.lists.length) state = freshState();
+if (!state.lists.find(l => l.id === state.active)) state.active = state.lists[0]?.id;
+
+/* ==================== AUTOSAVE ==================== */
+let saveTimer = null;
+function scheduleSave() {
+  saveStateEl.textContent = "● unsaved";
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(doSave, 700);          // autosave ~0.7s after last change
+}
+function doSave() {
+  clearTimeout(saveTimer);
+  writeSlot(currentSlot || DEFAULT_SLOT);
+  const t = new Date();
+  saveStateEl.textContent = "✓ " + (currentSlot || DEFAULT_SLOT) + " · " +
+    t.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+}
+function updateSaveState() {
+  saveStateEl.textContent = "💾 " + (currentSlot || DEFAULT_SLOT);
+}
+document.getElementById("saveBtn").addEventListener("click", () => {
+  doSave();
+});
+
+/* ==================== LOAD MODAL ==================== */
+const loadModal = document.getElementById("loadModal");
+const saveListEl = document.getElementById("saveList");
+
+document.getElementById("loadBtn").addEventListener("click", () => {
+  renderSaveList();
+  loadModal.style.display = "flex";
+});
+document.getElementById("closeLoadModal").addEventListener("click", () => {
+  loadModal.style.display = "none";
+});
+loadModal.addEventListener("click", ev => {
+  if (ev.target === loadModal) loadModal.style.display = "none";
+});
+document.getElementById("newSlotBtn").addEventListener("click", () => {
+  const name = prompt("Name this save:", "Save " + (listSaves().length + 1));
+  if (!name || !name.trim()) return;
+  const n = name.trim();
+  if (listSaves().some(s => s.name === n) &&
+      !confirm('A save named "' + n + '" already exists. Overwrite?')) return;
+  currentSlot = n;
+  doSave();
+  renderSaveList();
+  updateSaveState();
+});
+
+function renderSaveList() {
+  const saves = listSaves();
+  saveListEl.innerHTML = "";
+  if (!saves.length) {
+    saveListEl.innerHTML = '<div class="empty-note">No saved slots yet.<br>Use 💾 Save to create one.</div>';
+    return;
+  }
+  saves.forEach(s => {
+    const item = document.createElement("div");
+    item.className = "save-item" + (s.name === currentSlot ? " current" : "");
+    const d = new Date(s.savedAt);
+    item.innerHTML =
+      '<div><div class="si-name">' + escapeHtml(s.name) +
+        (s.name === currentSlot ? ' <span style="color:var(--good);font-size:.7rem">✓ active</span>' : "") +
+      '</div><div class="si-date">' + d.toLocaleString() + "</div></div>" +
+      '<div class="si-actions"><button class="si-load">Load</button><button class="si-del">Delete</button></div>';
+    item.querySelector(".si-load").addEventListener("click", () => {
+      const data = readSlot(s.name);
+      if (data && Array.isArray(data.lists) && data.lists.length) {
+        state = data;
+        state.active = state.lists.find(l => l.id === state.active)?.id || state.lists[0].id;
+        currentSlot = s.name;
+        loadModal.style.display = "none";
+        render();
+        updateSaveState();
+      } else {
+        alert('Save "' + s.name + '" is corrupted and cannot be loaded.');
+      }
+    });
+    item.querySelector(".si-del").addEventListener("click", () => {
+      if (confirm('Delete save "' + s.name + '"? This cannot be undone.')) {
+        deleteSlot(s.name);
+        renderSaveList();
+        updateSaveState();
+      }
+    });
+    saveListEl.appendChild(item);
+  });
+}
+
+/* ==================== DOM ==================== */
+const tabsEl = document.getElementById("tabs");
+const listsArea = document.getElementById("listsArea");
+const tooltip = document.getElementById("tooltip");
+const resultsEl = document.getElementById("results");
+const searchInput = document.getElementById("searchInput");
+const escapeHtml = s => String(s ?? "").replace(/[&<>"']/g, c =>
+  c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" :
+  c === '"' ? "&quot;" : "&apos;");
+
+function activeList() { return state.lists.find(l => l.id === state.active); }
+function findList(id) { return state.lists.find(l => l.id === id); }
+
+function render() {
+  renderTabs();
+  listsArea.innerHTML = "";
+  const list = activeList();
+  if (!list) return;
+  if (list.kind === "watch") listsArea.appendChild(renderWatchList(list));
+  else listsArea.appendChild(renderTierList(list));
+  renderSearchResults();   // keep results stable across re-renders
+  renderTaste();           // taste profile always mirrors current page data
+  scheduleSave();
+  syncMissingMeta();
+}
+
+function renderTabs() {
+  tabsEl.innerHTML = "";
+  state.lists.forEach(l => {
+    const t = document.createElement("div");
+    t.className = "tab" + (l.id === state.active ? " active" : "");
+    t.innerHTML = escapeHtml(l.name);
+    t.title = "Click to open · double-click to rename";
+    t.addEventListener("click", () => { state.active = l.id; render(); });
+    t.addEventListener("dblclick", () => {
+      const n = prompt("Rename list:", l.name);
+      if (n && n.trim()) { l.name = n.trim(); render(); }
+    });
+    if (state.lists.length > 1) {
+      const del = document.createElement("span");
+      del.className = "del"; del.textContent = "✕"; del.title = "Delete this list";
+      del.addEventListener("click", ev => {
+        ev.stopPropagation();
+        if (confirm('Delete list "' + l.name + '" and all its entries?')) {
+          state.lists = state.lists.filter(x => x.id !== l.id);
+          if (state.active === l.id) state.active = state.lists[0]?.id;
+          render();
+        }
+      });
+      t.appendChild(del);
+    }
+    tabsEl.appendChild(t);
+  });
+  const addTier = document.createElement("div");
+  addTier.className = "tab new-tab"; addTier.textContent = "+ Tier list";
+  addTier.addEventListener("click", () => addList("tier"));
+  const addWatch = document.createElement("div");
+  addWatch.className = "tab new-tab"; addWatch.textContent = "+ Watch list";
+  addWatch.addEventListener("click", () => addList("watch"));
+  tabsEl.appendChild(addTier); tabsEl.appendChild(addWatch);
+}
+
+function addList(kind) {
+  const name = prompt(kind === "tier" ? "Tier list name (e.g. Highschool Romance):" : "Watch list name:");
+  if (!name || !name.trim()) return;
+  const list = { id: uid(), name: name.trim(), kind,
+                 tiers: kind === "tier" ? DEFAULT_TIERS.map(t => ({ id: uid(), label: t })) : [],
+                 entries: [] };
+  state.lists.push(list);
+  state.active = list.id;
+  render();
+}
+
+function renderWatchList(list) {
+  const div = document.createElement("div");
+  div.className = "list-panel"; div.dataset.listId = list.id;
+  div.innerHTML = "<h2>📺 " + escapeHtml(list.name) +
+    ' <small>(' + list.entries.length + ")</small></h2>";
+  const zone = document.createElement("div");
+  zone.className = "drop-zone"; zone.dataset.listId = list.id; zone.dataset.tierId = "";
+  list.entries.forEach(e => zone.appendChild(makeCard(list, e)));
+  div.appendChild(zone);
+  return div;
+}
+
+function renderTierList(list) {
+  const div = document.createElement("div");
+  div.className = "list-panel"; div.dataset.listId = list.id;
+  // unranked row first
+  div.appendChild(makeTierRow(list, { id: "", label: "—" }, "unranked"));
+  list.tiers.forEach((t, i) => {
+    const row = makeTierRow(list, t, "");
+    row.querySelector(".tier-label").style.background = TIER_COLORS[i % TIER_COLORS.length];
+    if (t.label === "—" || !t.label) row.querySelector(".tier-label").textContent = "—";
+    div.appendChild(row);
+  });
+  const addTierBtn = document.createElement("div");
+  addTierBtn.className = "tab new-tab"; addTierBtn.style.display = "inline-block";
+  addTierBtn.textContent = "+ Tier";
+  addTierBtn.addEventListener("click", () => {
+    const lbl = prompt("New tier label (e.g. S+, God, Trash):");
+    if (lbl && lbl.trim()) { list.tiers.push({ id: uid(), label: lbl.trim() }); render(); }
+  });
+  div.appendChild(addTierBtn);
+  return div;
+}
+
+function makeTierRow(list, tier, extraCls) {
+  const row = document.createElement("div");
+  row.className = "tier-row " + extraCls;
+  const label = document.createElement("div");
+  label.className = "tier-label";
+  label.textContent = tier.label;
+  if (!extraCls) {
+    label.title = "Double-click to rename · ✕ removes tier";
+    const del = document.createElement("span");
+    del.className = "tdel"; del.textContent = "✕";
+    del.addEventListener("click", ev => {
+      ev.stopPropagation();
+      if (confirm('Remove tier "' + tier.label + '"? Its entries become Unranked.')) {
+        list.tiers = list.tiers.filter(t => t.id !== tier.id);
+        list.entries.forEach(e => { if (e.tierId === tier.id) e.tierId = null; });
+        render();
+      }
+    });
+    label.appendChild(del);
+    label.addEventListener("dblclick", () => {
+      const n = prompt("Rename tier:", tier.label);
+      if (n && n.trim()) { tier.label = n.trim(); render(); }
+    });
+  }
+  const zone = document.createElement("div");
+  zone.className = "tier-drop";
+  zone.dataset.listId = list.id;
+  zone.dataset.tierId = tier.id;
+  list.entries.filter(e => (e.tierId || "") === tier.id)
+    .forEach(e => zone.appendChild(makeCard(list, e)));
+  row.appendChild(label); row.appendChild(zone);
+  return row;
+}
+
+/* ---- card ---- */
+function makeCard(list, e) {
+  const div = document.createElement("div");
+  div.className = "item"; div.draggable = true;
+  div.dataset.entryId = e.id; div.dataset.listId = list.id;
+  const tierLabel = list.kind === "tier" ? (list.tiers.find(t => t.id === e.tierId)?.label || "—") : "";
+  div.innerHTML =
+    (list.kind === "tier" ? '<div class="tier-chip">' + escapeHtml(tierLabel) + "</div>" : "") +
+    '<button class="remove-btn" title="Remove">✕</button>' +
+    (e.cover ? '<img src="' + escapeHtml(e.cover) + '" alt="" loading="lazy">'
+             : '<div class="noimg">🖼 no image yet</div>') +
+    '<div class="it-title">' + escapeHtml(e.title) + "</div>" +
+    (e.score ? '<div class="it-score">★ ' + escapeHtml(e.score) + "</div>"
+             : '<div class="it-score na">score pending…</div>') +
+    (e.notes ? '<div class="notes-dot">📝</div>' : "");
+  return div;
+}
+
+/* =========================================================
+   TASTE ENGINE  —  builds a taste profile from the page data
+   (watch lists + tier lists), then discovers anime that match.
+   Pipeline:  local profile  ->  AniList id resolution
+              ->  batched "recommendations" votes
+              ->  detail fetch  ->  local re-rank + explain
+   Every network stage degrades to an offline fallback.
+   ========================================================= */
+const TIER_WEIGHT = { "SS+":1,"SS":1,"S+":.95,"S":.85,"A+":.78,"A":.7,"B+":.6,"B":.5,
+                      "C+":.4,"C":.3,"D+":.22,"D":.15,"E":.1,"F":.08 };
+const WATCH_WEIGHT = .45;
+
+/* Keyword themes -> real AniList genres / tags.  No /g flag: .test() must be stateless. */
+const THEME_RULES = [
+  { g:"Isekai", genres:["Fantasy","Supernatural","Adventure"],
+    tags:["Alternate Universe","Virtual World","Reincarnation","Transmigration"],
+    kw:/isekai|another world|other world|reincarnat|reincarnation|transmigrat|reborn|reincarnated|demon lord|slime|game world|isekai/i },
+  { g:"Fantasy", genres:["Fantasy","Adventure"],
+    tags:["Magic","Swordplay","Dragons","Monsters","Urban Fantasy"],
+    kw:/magic|wizard|sorcer|dragon|sword|knight|dungeon|adventur|elf|demon|monster|summon|spell/i },
+  { g:"Action", genres:["Action","Adventure"],
+    tags:["Martial Arts","Swordplay","Super Power","Combat Sports"],
+    kw:/fight|battle|combat|war|assassin|hero|soldier|martial|sword|weapon|strongest/i },
+  { g:"Comedy", genres:["Comedy"],
+    tags:["Comedy","Parody","Satire"],
+    kw:/comedy|comedic|funny|humor|humour|silly|parody|konosuba/i },
+  { g:"Romance", genres:["Romance","Comedy"],
+    tags:["Harem","Love Polygon","School","Maid"],
+    kw:/romance|love|dating|marry|marriage|girlfriend|boyfriend|waifu|harem|dating sim/i },
+  { g:"Drama", genres:["Drama"],
+    tags:["Tragedy","Revenge","Coming of Age","Found Family"],
+    kw:/tragedy|death|loss|grief|revenge|betrayal|family|past life|memories/i },
+  { g:"Sci-Fi", genres:["Sci-Fi"],
+    tags:["Cyberpunk","Mecha","Time Manipulation","Artificial Intelligence","Post-Apocalyptic"],
+    kw:/space|alien|robot|android|cyber|time travel|timetravel|mecha|future|technology|post-apoc|apocalyp/i },
+  { g:"Psychological", genres:["Psychological","Thriller"],
+    tags:["Mind Breakdown","Time Loop","Memory Manipulation"],
+    kw:/mental|mind|psycho|memory|madness|insane|loop|manipulat|conspirac/i },
+  { g:"Mystery", genres:["Mystery","Thriller"],
+    tags:["Detective","Serial Killers","Puzzle","Investigation"],
+    kw:/mystery|detective|kill|murder|serial|puzzle|investigat|secret|missing/i },
+  { g:"Horror", genres:["Horror","Supernatural"],
+    tags:["Horror","Gore","Zombie","Vampire","Ghost","Demons"],
+    kw:/horror|scary|zombie|vampire|ghost|demon|bloody|gore|dead|corpse|nightmare/i },
+  { g:"Supernatural", genres:["Supernatural"],
+    tags:["Ghost","Youkai","Killing Bites","Gods","Spirit"],
+    kw:/spirit|soul|god|goddess|youkai|shrine|ritual|curse|blessing|afterlife|heaven|hell/i },
+  { g:"School", genres:["Comedy","Romance","Slice of Life"],
+    tags:["School","Club","Student Council","Delinquent"],
+    kw:/school|classmate|teacher|student|academy|club|delinquent|campus/i },
+  { g:"Slice of Life", genres:["Slice of Life","Comedy"],
+    tags:["Ensemble Cast","Cute Girls Doing Cute Things","Food","Rural","Iyashikei"],
+    kw:/slice of life|daily life|everyday|countryside|cute|calm|peaceful|ordinary life|cooking|cafe/i },
+  { g:"Ecchi", genres:["Ecchi"],
+    tags:["Fanservice","Harem","Male Protagonist","Sexual Innuendo"],
+    kw:/ecchi|fan service|fanservice|sexy|pervert|boob|oppai|lust/i },
+  { g:"Military", genres:["Action","Drama"],
+    tags:["Military","Realistic","War","Soldier"],
+    kw:/army|military|soldier|war|jsdf|squad|army|regiment|command/i },
+  { g:"Mecha", genres:["Mecha","Sci-Fi","Action"],
+    tags:["Mecha","Military","Realistic"],
+    kw:/mecha|gundam|pilot|eva|robot|android/i }
+];
+
+/* Offline fallback pool — used only when AniList is unreachable. */
+const OFFLINE_POOL = [
+  ["Mushoku Tensei: Jobless Reincarnation",90,"Fantasy","Adventure","Isekai","Reincarnation"],
+  ["That Time I Got Reincarnated as a Slime",85,"Fantasy","Adventure","Isekai","Magic"],
+  ["Overlord",88,"Fantasy","Action","Alternate Universe","Isekai"],
+  ["The Rising of the Shield Hero",82,"Fantasy","Adventure","Isekai","Revenge"],
+  ["No Game No Life",80,"Fantasy","Adventure","Isekai","Video Games"],
+  ["Grimgar of Fantasy and Ash",81,"Fantasy","Drama","Isekai","Tragedy"],
+  ["Log Horizon",79,"Fantasy","Slice of Life","Video Games","Isekai"],
+  ["That Time I Got Reincarnated as a Sword",78,"Fantasy","Adventure","Isekai","Reincarnation"],
+  ["The Familiar of Zero",77,"Fantasy","Romance","Magic","Isekai"],
+  ["In Another World with My Smartphone",70,"Fantasy","Sci-Fi","Isekai"],
+  ["Death March to the Parallel World Rhapsody",72,"Fantasy","Isekai","Game"],
+  ["Konosuba: God's Blessing on This Wonderful World",84,"Fantasy","Comedy","Isekai","Ensemble Cast"],
+  ["Frieren: Beyond Journey's End",91,"Adventure","Drama","Fantasy","Elf"],
+  ["Fullmetal Alchemist: Brotherhood",90,"Action","Adventure","Fantasy","Alchemy"],
+  ["Attack on Titan",89,"Action","Drama","Fantasy","Military"],
+  ["Steins;Gate",90,"Drama","Psychological","Sci-Fi","Thriller"],
+  ["Vinland Saga",88,"Action","Adventure","Drama","Revenge"],
+  ["Chainsaw Man",86,"Action","Horror","Supernatural","Gore"],
+  ["Jujutsu Kaisen",86,"Action","Supernatural","Curses","Shounen"],
+  ["Hunter x Hunter",90,"Action","Adventure","Fantasy","Nen"],
+  ["Mob Psycho 100",85,"Action","Supernatural","Psychological","Comedy"],
+  ["Made in Abyss",86,"Adventure","Fantasy","Horror","Tragedy"],
+  ["Dorohedoro",84,"Action","Fantasy","Dark Fantasy","Gore"],
+  ["The Ancient Magus' Bride",83,"Fantasy","Romance","Supernatural","Magic"],
+  ["Land of the Lustrous",88,"Adventure","Fantasy","Drama","Gemstone"],
+  ["Dororo",86,"Action","Adventure","Fantasy","Historical"],
+  ["Ranking of Kings",83,"Action","Adventure","Fantasy","Royalty"],
+  ["To Your Eternity",85,"Action","Adventure","Drama","Immortal"],
+  ["86",83,"Sci-Fi","Drama","Military","Mecha"],
+  ["Cyberpunk: Edgerunners",86,"Sci-Fi","Action","Cyberpunk","CGI"],
+  ["Wandering Witch: The Journey of Elaina",84,"Fantasy","Adventure","Slice of Life","Journey"],
+  ["Kuma Kuma Kuma Bear",82,"Fantasy","Slice of Life","Comedy","Cute"],
+  ["Shield Hero",82,"Fantasy","Action","Isekai","Revenge"],
+  ["Restaurant to Another World",81,"Fantasy","Slice of Life","Food","Cooking"],
+  ["Re:Zero",90,"Fantasy","Psychological","Isekai","Time Loop"],
+  ["Goblin Slayer",80,"Fantasy","Action","Dark Fantasy","Revenge"],
+  ["Berserk",84,"Action","Fantasy","Drama","Dark"],
+  ["Trigun",84,"Action","Sci-Fi","Adventure","Guns"],
+  ["One Punch Man",82,"Action","Comedy","Super Power","Satire"]
+];
+
+const REC_CACHE_KEY = "animeTrackerRecCache_v1";
+const REC_TTL = 6 * 60 * 60 * 1000;      // 6h
+/* AniList allows ~30 requests/minute anonymously (verified via x-ratelimit-limit) and
+   answers 429 + retry-after:22 beyond that. 2.2s spacing keeps us under the cap. */
+const ANILIST_GAP = 2200;
+
+let _lastAniCall = 0;
+async function aniThrottle() {
+  const wait = _lastAniCall + ANILIST_GAP - Date.now();
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  _lastAniCall = Date.now();
+}
+async function anilist(query, variables, timeout) {
+  await aniThrottle();
+  const r = await fetchWithTimeout("https://graphql.anilist.co", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, variables }), timeout: timeout || 12000
+  });
+  if (r.status === 429) throw new Error("AniList rate limit (30/min) — wait ~30s, then Refresh");
+  if (!r.ok) throw new Error("AniList HTTP " + r.status);
+  const d = await r.json();
+  if (d.errors && d.errors.length) throw new Error(d.errors[0].message || "AniList error");
+  return d.data;
+}
+
+/* ---- small helpers ---- */
+function normTitle(t) {
+  return String(t || "").toLowerCase()
+    .replace(/\b(season|part|cour)\s*\.?\s*\d+\b/g, " ")
+    .replace(/\b\d+(st|nd|rd|th)\s*season\b/g, " ")
+    .replace(/\bs[0-9]\b|\bpart\s*[0-9ivx]+\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ").trim();
+}
+function bump(map, key, val) { map.set(key, (map.get(key) || 0) + val); }
+function topEntries(map, n) {
+  return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, n);
+}
+const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+const median = a => {
+  if (!a.length) return null;
+  const s = [...a].sort((x, y) => x - y), m = s.length >> 1;
+  return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+};
+
+/* ---- which lists feed the model (user-togglable) ---- */
+const tasteSources = {};
+function sourceEnabled(l) { return tasteSources[l.id] !== false; }
+
+/* ==================== STAGE 1: local profile ==================== */
+function buildTasteProfile() {
+  const genres = new Map(), tags = new Map(), seeds = [];
+  const stats = { tracked: 0, ranked: 0, unranked: 0, watchQ: 0, lists: 0,
+                  scores: [], years: [], eps: [] };
+  for (const list of state.lists) {
+    if (!sourceEnabled(list)) continue;
+    stats.lists++;
+    for (const e of list.entries) {
+      const label = list.kind === "tier"
+        ? (list.tiers.find(t => t.id === e.tierId)?.label || "") : "";
+      let w = list.kind === "tier"
+        ? (TIER_WEIGHT[label.toUpperCase().trim()] ?? .4)
+        : WATCH_WEIGHT;
+      // a high score the user recorded is itself a taste signal
+      if (e.score) w *= 1 + Math.max(0, (Number(e.score) - 70)) / 200;
+      stats.tracked++;
+      if (list.kind === "tier") { if (e.tierId) stats.ranked++; else stats.unranked++; }
+      else stats.watchQ++;
+      if (e.score) stats.scores.push(Number(e.score));
+      if (e.year) stats.years.push(Number(e.year));
+      if (e.episodes) stats.eps.push(Number(e.episodes));
+      if (e.source === "anilist" && e.srcId) seeds.push({ id: e.srcId, w, title: e.title });
+
+      const hay = (e.title || "") + " \n " + (e.synopsis || "");
+      for (const r of THEME_RULES) {
+        if (!r.kw.test(hay)) continue;
+        for (const g of r.genres) bump(genres, g, w);
+        for (const t of r.tags) bump(tags, t, w * .6);
+      }
+    }
+  }
+  return {
+    genres, tags, seeds,
+    topGenres: topEntries(genres, 8),
+    topTags: topEntries(tags, 6),
+    stats: {
+      ...stats,
+      avgScore: stats.scores.length ? Math.round(mean(stats.scores)) : null,
+      medYear: median(stats.years),
+      medEps: median(stats.eps)
+    }
+  };
+}
+
+/* ==================== STAGE 2: resolve titles -> AniList ids ==================== */
+/* Resolves up to `titles` to AniList entries, chunking N aliased searches per request.
+   Sets `onError` rather than a closure variable so the caller can report failures. */
+const ALIAS_CHUNK = 16;
+async function resolveAniIds(titles, onError) {
+  const out = new Map();
+  const chunks = [];
+  for (let i = 0; i < titles.length; i += ALIAS_CHUNK) chunks.push(titles.slice(i, i + ALIAS_CHUNK));
+  for (const chunk of chunks) {
+    const fields = chunk.map((t, i) =>
+      `a${i}:Page(perPage:1){media(search:${JSON.stringify(t)},type:ANIME,isAdult:false){` +
+      `id title{english romaji} averageScore genres tags{name rank}}}`).join(" ");
+    try {
+      const d = await anilist(`query{${fields}}`, {}, 11000);
+      if (!d) continue;
+      chunk.forEach((t, i) => {
+        const m = d["a" + i]?.media?.[0];
+        if (m) out.set(normTitle(t), m);
+      });
+    } catch (e) { if (onError) onError(e); break; }
+    if (chunk !== chunks[chunks.length - 1]) await new Promise(r => setTimeout(r, ANILIST_GAP));
+  }
+  return out;
+}
+
+/* ==================== STAGE 3: batched recommendation votes ==================== */
+const REC_VOTE_Q = `query($ids:[Int]){Page(perPage:50){media(id_in:$ids,type:ANIME){
+  id recommendations(sort:[RATING_DESC],perPage:8){nodes{rating mediaRecommendation{id}}}}}}`;
+async function collectVotes(seedIds) {
+  if (!seedIds.length) return new Map();
+  const d = await anilist(REC_VOTE_Q, { ids: seedIds.slice(0, 50) }, 14000);
+  const votes = new Map();
+  for (const m of d?.Page?.media || []) {
+    for (const n of m.recommendations?.nodes || []) {
+      const mr = n.mediaRecommendation;
+      if (mr) bump(votes, mr.id, n.rating || 1);
+    }
+  }
+  return votes;
+}
+
+/* ==================== STAGE 4: fetch details for winners ==================== */
+const DETAIL_Q = `query($ids:[Int]){Page(perPage:25){media(id_in:$ids,type:ANIME,isAdult:false){
+  id title{english romaji} coverImage{large} averageScore meanScore popularity genres format
+  startDate{year} episodes description siteUrl tags{name rank}}}}`;
+async function fetchDetails(ids) {
+  if (!ids.length) return new Map();
+  const d = await anilist(DETAIL_Q, { ids: ids.slice(0, 25) }, 14000);
+  const m = new Map();
+  for (const a of d?.Page?.media || []) m.set(a.id, a);
+  return m;
+}
+
+/* ==================== offline fallback ==================== */
+function offlineRecs(profile, seen, limit, looksTracked) {
+  const isTracked = looksTracked || (t => seen.has(normTitle(t)));
+  const want = new Map(profile.genres);
+  for (const [t, v] of profile.tags) want.set(t, (want.get(t) || 0) + v * .8);
+  const out = [];
+  for (const [title, score, g1, g2, t1, t2] of OFFLINE_POOL) {
+    if (isTracked(title)) continue;
+    const keys = [g1, g2, t1, t2];
+    let m = 0;
+    const why = [];
+    for (const k of keys) {
+      const v = want.get(k) || 0;
+      if (v > 0) { m += v; why.push(k); }
+    }
+    if (m <= 0) continue;
+    out.push({ title, score, match: m, genres: [g1, g2], tags: [t1, t2],
+               why: why.slice(0, 3), offline: true });
+  }
+  return out.sort((a, b) => b.match - a.match || b.score - a.score).slice(0, limit);
+}
+
+/* ==================== sidebar DOM refs ==================== */
+/* Declared up here (not next to the render functions) so that computeRecs() below —
+   which runs before the render block is evaluated during boot — can never touch them
+   inside their temporal dead zone. */
+const recListEl   = document.getElementById("recList");
+const recNoteEl   = document.getElementById("recNote");
+const recCountEl  = document.getElementById("recCount");
+const statGridEl  = document.getElementById("statGrid");
+const tasteBarsEl = document.getElementById("tasteBars");
+const tasteSrcEl  = document.getElementById("tasteSources");
+
+/* ==================== orchestration ==================== */
+let recCandidates = [];
+let tasteProfile = null;
+let recBusy = false;
+
+function pageSignature() {
+  return state.lists.filter(sourceEnabled)
+    .map(l => l.id + ":" + l.entries.map(e => (e.srcId || "") + "|" + normTitle(e.title)).join(","))
+    .join(";");
+}
+function readRecCache() {
+  try { return JSON.parse(localStorage.getItem(REC_CACHE_KEY) || "null"); }
+  catch (e) { return null; }
+}
+function writeRecCache(sig, recs) {
+  try {
+    localStorage.setItem(REC_CACHE_KEY, JSON.stringify({ sig, at: Date.now(), recs }));
+  } catch (e) {}
+}
+
+async function computeRecs(force) {
+  if (recBusy) return;
+  recBusy = true;
+  const sig = pageSignature();
+
+  const cached = readRecCache();
+  if (!force && cached && cached.sig === sig &&
+      Date.now() - cached.at < REC_TTL && cached.recs.length) {
+    recCandidates = cached.recs;
+    recBusy = false;
+    renderRecs();
+    return;
+  }
+
+  const profile_ = buildTasteProfile();
+  tasteProfile = profile_;
+  renderTaste();
+
+  recListEl.innerHTML = '<div class="rec-skel"></div><div class="rec-skel" style="margin-top:9px"></div>';
+  recNoteEl.innerHTML = "Reading your taste profile…";
+
+  // things already on the page are never "new" recommendations
+  const seen = new Set();
+  const seenTokens = [];
+  for (const l of state.lists) {
+    if (!sourceEnabled(l)) continue;
+    for (const e of l.entries) {
+      const n = normTitle(e.title);
+      seen.add(n);
+      const tk = n.split(" ").filter(w => w.length > 3);
+      if (tk.length) seenTokens.push(new Set(tk));
+    }
+  }
+  const seenIds = new Set();
+  for (const l of state.lists) for (const e of l.entries)
+    if (e.source === "anilist" && e.srcId) seenIds.add(Number(e.srcId));
+
+  /* AniList titles rarely match the user's spelling exactly ("Kono Subarashii Sekai ni
+     Shukufuku wo" vs "KONOSUBA -God's blessing..."), so also block by significant-token
+     overlap and by AniList id resolved below. */
+  function looksTracked(title) {
+    const n = normTitle(title);
+    if (!n || seen.has(n)) return true;
+    const tk = n.split(" ").filter(w => w.length > 3);
+    if (!tk.length) return false;
+    for (const s of seenTokens) {
+      let hit = 0;
+      for (const w of tk) if (s.has(w)) hit++;
+      if (hit / tk.length >= .7) return true;
+    }
+    return false;
+  }
+
+  let recs = [];
+  let netErr = null;
+  try {
+    /* resolve tracked titles to AniList ids (so we can use real genres + recommendations) */
+    const wantTitles = [];
+    for (const l of state.lists) {
+      if (!sourceEnabled(l)) continue;
+      for (const e of l.entries)
+        if (!(e.source === "anilist" && e.srcId) && e.title && e.title.length > 3)
+          wantTitles.push(e.title.trim());
+    }
+    const uniqTitles = [...new Set(wantTitles)].slice(0, 40);
+    const resolved = uniqTitles.length
+      ? await resolveAniIds(uniqTitles, e => { netErr = netErr || e; }) : new Map();
+    // anything we just resolved IS already on the page — never recommend it back
+    for (const m of resolved.values()) seenIds.add(Number(m.id));
+
+    /* enrich the profile with real genres/tags from AniList for resolved titles */
+    const seedWeights = new Map();     // anilist id -> weight
+    for (const l of state.lists) {
+      if (!sourceEnabled(l)) continue;
+      for (const e of l.entries) {
+        const label = l.kind === "tier" ? (l.tiers.find(t => t.id === e.tierId)?.label || "") : "";
+        let w = l.kind === "tier" ? (TIER_WEIGHT[label.toUpperCase().trim()] ?? .4) : WATCH_WEIGHT;
+        if (e.score) w *= 1 + Math.max(0, (Number(e.score) - 70)) / 200;
+        const m = (e.source === "anilist" && e.srcId)
+          ? { id: Number(e.srcId), genres: [], tags: [] } : resolved.get(normTitle(e.title));
+        if (!m) continue;
+        for (const g of m.genres || []) bump(profile_.genres, g, w);
+        for (const t of (m.tags || []).slice(0, 14)) {
+          if ((t.rank || 0) >= 70) bump(profile_.tags, t.name, w * .5);
+        }
+        seedWeights.set(Number(m.id), (seedWeights.get(Number(m.id)) || 0) + w);
+      }
+    }
+    tasteProfile = profile_;
+    tasteProfile.topGenres = topEntries(profile_.genres, 8);
+    tasteProfile.topTags = topEntries(profile_.tags, 6);
+    renderTaste(tasteProfile);
+
+    /* collaborative-filter votes from their highest-weighted tracked anime */
+    const orderedSeeds = [...seedWeights.entries()].sort((a, b) => b[1] - a[1]).slice(0, 22).map(x => x[0]);
+    let votes = new Map();
+    /* Seeds are themselves tracked anime, so they MUST be sent here. seenIds only
+       restricts what we may *show*, never what the model may learn from. */
+    try { votes = await collectVotes(orderedSeeds); }
+    catch (e) { netErr = netErr || e; votes = new Map(); }
+
+    /* Discover by profile genre if votes are thin. NOTE: AniList's genre_in is an AND
+       (intersect), NOT a union — passing several genres narrows results drastically.
+       So query the single strongest genre for breadth and let the local re-rank below
+       order the results against the whole profile. */
+    if (votes.size < 8) {
+      const g = tasteProfile.topGenres.slice(0, 1).map(x => x[0]);
+      if (g.length) {
+        try {
+          const d = await anilist(
+            `query($g:[String],$ids:[Int]){Page(perPage:20){media(type:ANIME,isAdult:false,` +
+            `genre_in:$g,id_not_in:$ids,sort:[SCORE_DESC]){id}}}`,
+            { g, ids: [...seenIds].slice(0, 40) }, 12000);
+          for (const m of d?.Page?.media || []) if (!seenIds.has(m.id)) bump(votes, m.id, 3);
+        } catch (e) { netErr = netErr || e; }
+      }
+    }
+
+    const winners = [...votes.entries()]
+      .sort((a, b) => b[1] - a[1]).map(x => x[0])
+      .filter(id => !seenIds.has(id)).slice(0, 25);
+    const details = winners.length ? await fetchDetails(winners) : new Map();
+
+    /* local re-rank */
+    const gW = new Map(tasteProfile.topGenres.map(([k, v]) => [k, v]));
+    const tW = new Map(profile_.tags);
+    const gMax = Math.max(1, ...tasteProfile.topGenres.map(x => x[1]));
+    const maxVote = Math.max(1, ...[...votes.values()]);
+
+    const scored = [];
+    for (const [id, a] of details) {
+      if (looksTracked(a.title?.english || a.title?.romaji)) continue;
+      let s = 0;
+      const why = [];
+      const gHits = (a.genres || []).filter(g => gW.has(g));
+      const tHits = (a.tags || []).filter(t => (t.rank || 0) >= 70 && tW.has(t.name)).slice(0, 2);
+      for (const g of gHits) { s += (gW.get(g) / gMax) * 9; why.push(g); }
+      for (const t of tHits) s += (tW.get(t.name) / gMax) * 4;
+      s += Math.min(6, (votes.get(id) || 0) / maxVote * 6);
+      s += ((a.averageScore || 0) / 100) * 5;
+      s += Math.min(3, Math.log10((a.popularity || 1) + 1) * .8);
+      scored.push({
+        source: "anilist", srcId: id,
+        title: a.title?.english || a.title?.romaji || "Unknown",
+        cover: a.coverImage?.large, score: a.averageScore,
+        year: a.startDate?.year, format: a.format, episodes: a.episodes,
+        synopsis: stripHtml(a.description), url: a.siteUrl,
+        genres: a.genres || [], tags: (a.tags || []).filter(t => (t.rank || 0) >= 70).map(t => t.name),
+        why: [...new Set([...tHits.map(t => t.name), ...gHits])].slice(0, 3),
+        rank: s, votes: votes.get(id) || 0
+      });
+    }
+    /* AniList splits franchises into many entries ("Demon Slayer: Mugen Train",
+       "...Entertainment District Arc", "...Infinity Castle"). Keep only the strongest
+       result per franchise so one show cannot flood the sidebar. */
+    const FRANCHISE_NOISE = new Set(["season", "movie", "arc", "part", "the", "and", "new",
+      "final", "movie2", "series", "tv", "ona", "special", "first", "second", "third"]);
+    function franchiseKey(title) {
+      const toks = normTitle(title).split(" ").filter(w => w.length > 2 && !FRANCHISE_NOISE.has(w));
+      return toks.slice(0, 2).join(" ") || normTitle(title);
+    }
+    const best = new Map();
+    for (const r of scored.sort((a, b) => b.rank - a.rank)) {
+      const k = franchiseKey(r.title);
+      if (!best.has(k)) best.set(k, r);
+    }
+    recs = [...best.values()].sort((a, b) => b.rank - a.rank).slice(0, 10);
+
+    if (!recs.length) {
+      recs = offlineRecs(tasteProfile, seen, 8, looksTracked);
+      recNoteEl.innerHTML = netErr
+        ? "⚠ Could not reach AniList (" + escapeHtml(netErr.message || "network") +
+          ") — these are built-in picks matched to your profile."
+        : "⚠ AniList had nothing new for this profile — these are built-in picks.";
+    } else {
+      recNoteEl.innerHTML = "Ranked by how strongly your top genres, tier placements and scores line up.";
+      writeRecCache(sig, recs);
+    }
+  } catch (err) {
+    recs = offlineRecs(tasteProfile, seen, 8, looksTracked);
+    recNoteEl.innerHTML = "⚠ Could not reach AniList (" + escapeHtml(err.message || "network") +
+      ") — these are built-in picks matched to your profile.";
+  }
+
+  recCandidates = recs.map(r => ({ source: r.source || null, srcId: r.srcId ?? null,
+    cover: r.cover || null, score: r.score ?? null, year: r.year ?? null,
+    format: r.format ?? null, episodes: r.episodes ?? null, synopsis: r.synopsis || null,
+    url: r.url || null, votes: 0, why: r.why || [], ...r, searchId: uid() }));
+  recBusy = false;
+  renderRecs();
+}
+
+/* ==================== sidebar rendering ==================== */
+function renderTaste(enriched) {
+  const p = enriched || buildTasteProfile();
+  tasteProfile = p;
+  const st = p.stats;
+  statGridEl.innerHTML = [
+    [st.tracked, "tracked"],
+    [st.ranked + " / " + (st.ranked + st.unranked), "ranked / total"],
+    [st.watchQ, "on watch list"],
+    [st.avgScore != null ? "★ " + st.avgScore : "—", "avg score"],
+    [st.medYear || "—", "median year"],
+    [st.medEps != null ? st.medEps + " ep" : "—", "median length"]
+  ].map(([v, l]) => '<div class="stat"><div class="sv">' + escapeHtml(String(v)) +
+    '</div><div class="sl">' + l + "</div></div>").join("");
+
+  const max = Math.max(1, ...p.topGenres.map(x => x[1]));
+  let html = p.topGenres.length
+    ? '<div class="taste-sub">Genre signal</div>' +
+      p.topGenres.map(([g, v]) =>
+        '<div class="taste-row"><div class="taste-name" title="' + escapeHtml(g) + '">' + escapeHtml(g) + "</div>" +
+        '<div class="taste-track"><div class="taste-fill" style="width:' +
+        Math.max(4, Math.round(v / max * 100)) + '%"></div></div>' +
+        '<div class="taste-pct">' + Math.round(v / max * 100) + "%</div></div>").join("")
+    : '<div class="rec-note">Add or rank a few anime and the model will build a profile.</div>';
+
+  if (p.topTags.length) {
+    html += '<div class="taste-sub">Top motifs</div><div class="rec-why">' +
+      p.topTags.map(([t]) => '<span class="why-chip">' + escapeHtml(t) + "</span>").join("") + "</div>";
+  }
+  tasteBarsEl.innerHTML = html;
+
+  tasteSrcEl.innerHTML = "";
+  state.lists.forEach(l => {
+    const b = document.createElement("button");
+    b.className = sourceEnabled(l) ? "on" : "";
+    b.textContent = (sourceEnabled(l) ? "✓ " : "✕ ") + l.name;
+    b.title = sourceEnabled(l) ? "Included in your taste model — click to exclude"
+                                : "Excluded — click to include";
+    b.addEventListener("click", () => {
+      tasteSources[l.id] = sourceEnabled(l) ? false : true;
+      renderTaste();
+      computeRecs(true);
+    });
+    tasteSrcEl.appendChild(b);
+  });
+}
+
+function renderRecs() {
+  if (!recCandidates.length) {
+    if (!recBusy) recListEl.innerHTML =
+      '<div class="rec-err">Nothing to recommend yet. Rank or add a few anime, then hit Refresh.</div>';
+    return;
+  }
+  recCountEl.textContent = recCandidates.length + " picks";
+  recListEl.innerHTML = "";
+  recCandidates.forEach(r => {
+    const div = document.createElement("div");
+    div.className = "rec-card"; div.draggable = true; div.dataset.searchId = r.searchId;
+    div.title = "Drag into any tier · hover for synopsis";
+    div.innerHTML =
+      (r.cover ? '<img src="' + escapeHtml(r.cover) + '" alt="" loading="lazy">'
+               : '<div class="rc-noimg">no image</div>') +
+      '<div class="rec-body">' +
+        '<div class="rec-title">' + escapeHtml(r.title) + "</div>" +
+        '<div class="rec-meta"><span class="rec-score">' +
+          (r.score != null ? "★ " + r.score : "★ ?") + "</span>" +
+          (() => { const fy = [r.format, r.year].filter(Boolean).join(" · ");
+                   return fy ? "<span>" + escapeHtml(fy) + "</span>" : ""; })() +
+          (r.votes > 3 ? "<span title=\"Liked by people who also liked your picks\">👥 " + r.votes + "</span>" : "") +
+        "</div>" +
+        (r.why && r.why.length
+          ? '<div class="rec-why">' + r.why.slice(0, 3)
+              .map(w => '<span class="why-chip' + (w.length > 14 ? "" : " hit") + '">' + escapeHtml(w) + "</span>").join("") +
+            "</div>" : "") +
+        '<div class="rec-actions">' +
+          '<button data-act="watch">+ Watch list</button>' +
+          '<button data-act="top">→ Best tier</button>' +
+        "</div>" +
+      "</div>";
+    div.querySelector('[data-act="watch"]').addEventListener("click", ev => {
+      ev.stopPropagation();
+      addCandidateToWatch(r);
+      ev.target.textContent = "✓ added"; ev.target.classList.add("added");
+      setTimeout(() => { ev.target.textContent = "+ Watch list"; ev.target.classList.remove("added"); }, 1200);
+    });
+    div.querySelector('[data-act="top"]').addEventListener("click", ev => {
+      ev.stopPropagation();
+      const t = addCandidateToTopTier(r);
+      ev.target.textContent = t ? "✓ " + t : "—";
+      setTimeout(() => { ev.target.textContent = "→ Best tier"; }, 1400);
+    });
+    recListEl.appendChild(div);
+  });
+}
+
+function candidateToEntry(c, tierId) {
+  return { ...blankEntry(c.title), source: c.source, srcId: c.srcId, cover: c.cover,
+    score: c.score, year: c.year, format: c.format, episodes: c.episodes,
+    synopsis: c.synopsis, url: c.url, tierId: tierId ?? null, metaDone: true };
+}
+function addCandidateToWatch(c) {
+  let wl = state.lists.find(l => l.kind === "watch");
+  if (!wl) { addWatchSilent(); wl = state.lists[state.lists.length - 1]; }
+  if (wl.entries.some(e => normTitle(e.title) === normTitle(c.title))) return false;
+  wl.entries.push(candidateToEntry(c, null));
+  render();
+  return true;
+}
+function addCandidateToTopTier(c) {
+  const tl = state.lists.find(l => l.kind === "tier");
+  if (!tl || !tl.tiers.length) return null;
+  const best = tl.tiers.reduce((a, b) =>
+    (TIER_WEIGHT[a.label.toUpperCase().trim()] ?? .4) >= (TIER_WEIGHT[b.label.toUpperCase().trim()] ?? .4) ? a : b);
+  if (tl.entries.some(e => normTitle(e.title) === normTitle(c.title))) return null;
+  tl.entries.push(candidateToEntry(c, best.id));
+  render();
+  return best.label;
+}
+
+document.getElementById("recRefresh").addEventListener("click", () => {
+  recBusy = false;
+  computeRecs(true);
+});
+
+/* ==================== DRAG & DROP ==================== */
+document.addEventListener("dragstart", ev => {
+  const card = ev.target.closest(".item");
+  const rc = ev.target.closest(".result-card, .rec-card");
+  if (card) {
+    ev.dataTransfer.setData("text/plain",
+      JSON.stringify({ type: "entry", listId: card.dataset.listId, entryId: card.dataset.entryId }));
+  } else if (rc) {
+    ev.dataTransfer.setData("text/plain",
+      JSON.stringify({ type: "search", searchId: rc.dataset.searchId }));
+  }
+});
+document.addEventListener("dragover", ev => {
+  const zone = ev.target.closest(".tier-drop, .drop-zone");
+  if (zone) { ev.preventDefault(); zone.closest(".list-panel")?.classList.add("dragover"); }
+});
+document.addEventListener("dragleave", ev => {
+  if (ev.target.closest) {
+    const z = ev.target.closest(".list-panel");
+    if (z && !z.contains(ev.relatedTarget)) z.classList.remove("dragover");
+  }
+});
+document.addEventListener("drop", ev => {
+  const zone = ev.target.closest(".tier-drop, .drop-zone");
+  if (!zone) return;
+  ev.preventDefault();
+  zone.closest(".list-panel")?.classList.remove("dragover");
+  let payload;
+  try { payload = JSON.parse(ev.dataTransfer.getData("text/plain")); } catch (e) { return; }
+
+  const list = findList(zone.dataset.listId);
+  if (!list) return;
+  if (payload.type === "search") {
+    const cand = findCandidate(payload.searchId);
+    if (cand) {
+      list.entries.push({ ...blankEntry(cand.title), source: cand.source, srcId: cand.srcId,
+        cover: cand.cover, score: cand.score, year: cand.year, format: cand.format,
+        episodes: cand.episodes, synopsis: cand.synopsis, url: cand.url,
+        tierId: list.kind === "tier" ? (zone.dataset.tierId || null) : null, metaDone: true });
+      render();
+    }
+  } else if (payload.type === "entry") {
+    const src = findList(payload.listId);
+    const e = src?.entries.find(x => x.id === payload.entryId);
+    if (e && src) {
+      if (list.kind === "tier") e.tierId = zone.dataset.tierId || null;
+      if (src.id !== list.id) {
+        src.entries = src.entries.filter(x => x.id !== e.id);
+        list.entries.push(e);
+      }
+      render();
+    }
+  }
+});
+
+/* ==================== REMOVE / NOTES ==================== */
+document.addEventListener("click", ev => {
+  if (!ev.target.classList.contains("remove-btn")) return;
+  const card = ev.target.closest(".item");
+  const list = findList(card?.dataset.listId);
+  if (!list) return;
+  list.entries = list.entries.filter(x => x.id !== card.dataset.entryId);
+  render();
+});
+document.addEventListener("dblclick", ev => {
+  const card = ev.target.closest(".item");
+  if (!card) return;
+  const list = findList(card.dataset.listId);
+  const e = list?.entries.find(x => x.id === card.dataset.entryId);
+  if (!e) return;
+  const n = prompt('Notes for "' + e.title + '":', e.notes || "");
+  if (n !== null) { e.notes = n; render(); }
+});
+
+/* ==================== TOOLTIP ==================== */
+let ttTimer = null;
+function findCandidate(id) {
+  if (!id) return undefined;
+  return searchCandidates.find(x => x.searchId === id)
+      || recCandidates.find(x => x.searchId === id);
+}
+document.addEventListener("mouseover", ev => {
+  const el = ev.target.closest(".item, .result-card, .rec-card");
+  if (!el) return;
+  let d;
+  if (el.classList.contains("item")) {
+    const list = findList(el.dataset.listId);
+    d = list?.entries.find(x => x.id === el.dataset.entryId);
+  } else {
+    d = findCandidate(el.dataset.searchId);
+  }
+  if (!d) return;
+  clearTimeout(ttTimer);
+  ttTimer = setTimeout(() => showTooltip(d), 300);
+});
+document.addEventListener("mouseout", ev => {
+  if (ev.target.closest?.(".item, .result-card, .rec-card")) { clearTimeout(ttTimer); tooltip.style.display = "none"; }
+});
+document.addEventListener("mousemove", ev => {
+  if (tooltip.style.display !== "block") return;
+  const pad = 14;
+  let x = ev.clientX + pad, y = ev.clientY + pad;
+  const r = tooltip.getBoundingClientRect();
+  if (x + r.width > innerWidth - 8) x = ev.clientX - r.width - pad;
+  if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - pad;
+  tooltip.style.left = x + "px"; tooltip.style.top = y + "px";
+});
+const SRC_LABEL = { anilist: "AniList", kitsu: "Kitsu", mal: "MAL" };
+function showTooltip(d) {
+  const bits = [
+    d.score != null ? "<b>★ " + escapeHtml(String(d.score)) + "</b>" + (d.source === "mal" ? " /10" : " /100") : null,
+    d.format || null,
+    d.episodes ? d.episodes + " eps" : null,
+    d.year || null,
+    d.source ? "via " + SRC_LABEL[d.source] : null
+  ].filter(Boolean).join("  ·  ");
+  tooltip.innerHTML =
+    '<div class="tt-head">' +
+      (d.cover ? '<img src="' + escapeHtml(d.cover) + '" alt="">' : "") +
+      "<div><div class=\"tt-title\">" + escapeHtml(d.title || "") + "</div>" +
+      '<div class="tt-stats">' + bits + "</div></div></div>" +
+    '<div class="tt-syn">' +
+      escapeHtml(d.synopsis || "No synopsis available (metadata may still be syncing).") +
+    "</div>" +
+    (d.url ? '<a class="tt-link" href="' + escapeHtml(d.url) + '" target="_blank">Open page →</a>' : "");
+  tooltip.style.display = "block";
+}
+
+/* ==================== SEARCH ==================== */
+let searchCandidates = [];
+async function doSearch() {
+  const q = searchInput.value.trim();
+  if (!q) return;
+  resultsEl.innerHTML = '<div class="loading">Searching…</div>';
+  const hits = await apiSearch(q);
+  if (!hits.length) {
+    resultsEl.innerHTML = '<div class="loading">No results — all APIs unreachable or nothing found.</div>';
+    return;
+  }
+  searchCandidates = hits.map(h => ({ ...h, searchId: uid() }));
+  renderSearchResults();
+}
+function renderSearchResults() {
+  if (!searchCandidates.length) { resultsEl.innerHTML = ""; return; }
+  resultsEl.innerHTML = "";
+  searchCandidates.forEach(c => {
+    const div = document.createElement("div");
+    div.className = "result-card"; div.draggable = true; div.dataset.searchId = c.searchId;
+    div.innerHTML =
+      (c.cover ? '<img src="' + escapeHtml(c.cover) + '" alt="" loading="lazy">' : "") +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:4px">' +
+        '<span class="score-pill ' + (c.score != null ? "" : "na") + '">' +
+          (c.score != null ? "★ " + c.score : "★ ?") + "</span>" +
+        '<span class="rc-year">' + escapeHtml([c.format, c.year].filter(Boolean).join(" · ")) + "</span>" +
+      "</div>" +
+      '<div class="rc-title">' + escapeHtml(c.title) + "</div>" +
+      '<div class="rc-year">' + escapeHtml(SRC_LABEL[c.source] || "") + '</div>' +
+      "<button class=\"rc-add\">+ Watch Later</button>";
+    div.querySelector(".rc-add").addEventListener("click", ev => {
+      ev.stopPropagation();
+      let wl = state.lists.find(l => l.kind === "watch");
+      if (!wl) { addWatchSilent(); wl = state.lists[state.lists.length - 1]; }
+      wl.entries.push({ ...blankEntry(c.title), source: c.source, srcId: c.srcId,
+        cover: c.cover, score: c.score, year: c.year, format: c.format,
+        episodes: c.episodes, synopsis: c.synopsis, url: c.url, metaDone: true });
+      render();
+      div.querySelector(".rc-add").textContent = "✓ added";
+      setTimeout(() => { div.remove(); searchCandidates = searchCandidates.filter(x => x !== c); }, 700);
+    });
+    resultsEl.appendChild(div);
+  });
+}
+function addWatchSilent() {
+  state.lists.push({ id: uid(), name: "Watch Later", kind: "watch", tiers: [], entries: [] });
+}
+document.getElementById("searchBtn").addEventListener("click", doSearch);
+searchInput.addEventListener("keydown", ev => { if (ev.key === "Enter") doSearch(); });
+
+/* ==================== META SYNC (seeded entries) ==================== */
+let syncing = false;
+function needsMeta(e) {
+  // old saves could be marked "done" yet hold no data — require actual fields
+  if (e.cover && (e.synopsis || e.score != null)) return false;
+  return (e.syncTries || 0) < 4;               // retry cap so we never loop forever
+}
+function pickBestHit(title, hits) {
+  // score candidates by token overlap instead of a brittle substring check
+  const norm = s => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const toks = new Set(norm(title).split(" ").filter(w => w.length > 2));
+  let best = null, bestScore = 0;
+  for (const h of hits) {
+    const score = norm(h.title).split(" ").filter(w => toks.has(w)).length;
+    if (score > bestScore) { bestScore = score; best = h; }
+  }
+  return best || hits[0] || null;
+}
+async function syncMissingMeta() {
+  if (syncing) return;
+  const pending = state.lists.flatMap(l => l.entries).filter(needsMeta);
+  if (!pending.length) return;
+  syncing = true;
+  for (const e of pending) {
+    e.syncTries = (e.syncTries || 0) + 1;
+    try {
+      const best = pickBestHit(e.title, await apiSearch(e.title));
+      if (best && (best.cover || best.synopsis || best.score != null)) {
+        e.source = best.source; e.srcId = best.srcId; e.cover = best.cover;
+        e.score = best.score; e.year = best.year; e.format = best.format;
+        e.episodes = best.episodes; e.synopsis = best.synopsis; e.url = best.url;
+        e.metaDone = true;
+      }
+    } catch (err) { /* keep going */ }
+    doSave();
+    render();                                   // cheap enough at this scale
+    await new Promise(r => setTimeout(r, 2200)); // stay under AniList's ~30 req/min cap
+  }
+  syncing = false;
+}
+
+/* ==================== EXPORT / IMPORT ==================== */
+document.getElementById("exportBtn").addEventListener("click", () => {
+  const L = ["# Anime Lists", ""];
+  for (const list of state.lists) {
+    if (list.kind === "tier") {
+      L.push("# " + list.name, "");
+      for (const t of [{ id: "", label: "Unranked" }, ...list.tiers]) {
+        L.push("### " + t.label + " Tier", "");
+        L.push("\\begin{tabular}{|p{0.72\\linewidth}|p{0.18\\linewidth}|}");
+        L.push("\\hline");
+        L.push("\\textbf{Ranking} & \\textbf{Notes} \\\\");
+        L.push("\\hline");
+        list.entries.filter(e => (e.tierId || "") === t.id)
+          .forEach(e => L.push(e.title + " & " + (e.notes || "") + " \\\\ \\hline"));
+        L.push("\\end{tabular}", "");
+      }
+    } else {
+      L.push("# Anime Yet to Watch — " + list.name, "");
+      list.entries.forEach(e => L.push("- " + e.title));
+      L.push("");
+    }
+  }
+  download("anime-lists.md", L.join("\n"));
+});
+document.getElementById("exportJsonBtn").addEventListener("click",
+  () => download("anime-tracker.json", JSON.stringify(state, null, 2)));
+function download(name, text) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+  a.download = name; a.click();
+}
+document.getElementById("importBtn").addEventListener("click",
+  () => document.getElementById("importFile").click());
+document.getElementById("importFile").addEventListener("change", ev => {
+  const f = ev.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      const clean = sanitizeState(d);
+      if (clean) { state = clean; doSave(); render(); }
+      else alert("Unrecognized JSON (expected an export from this app).");
+    } catch (e) { alert("Invalid JSON file"); }
+  };
+  r.readAsText(f);
+});
+
+/* ==================== BOOT ==================== */
+probeProviders().then(() => {
+  render();
+  renderRecs();                 // shows the empty state until recommendations land
+  bootRecs();                   // waits for metadata sync, then builds recommendations
+});
+updateSaveState();
+doSave();
+
+/* Kick off the recommender once the page has back-filled covers/scores: those enriched
+   entries carry AniList ids, which makes recommendations considerably sharper. Capped at
+   ~24s so a long metadata sync never leaves the panel spinning indefinitely. */
+async function bootRecs() {
+  for (let i = 0; i < 16 && syncing; i++) await new Promise(r => setTimeout(r, 1500));
+  if (syncing && !recCandidates.length) {
+    recNoteEl.innerHTML = "Metadata still syncing — recommendations will sharpen shortly.";
+  }
+  computeRecs();
+}
+</script>
+</body>
+</html>
