@@ -387,6 +387,58 @@
     border-radius: 8px; padding: 6px 11px;
   }
 
+  /* search filters */
+  .filters {
+    margin-top: 10px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden;
+  }
+  .filters-head {
+    width: 100%; display: flex; align-items: center; gap: 8px; background: transparent;
+    border: 0; border-bottom: 1px solid transparent; color: var(--muted); cursor: pointer;
+    padding: 8px 11px; font-size: .74rem; font-weight: 700; letter-spacing: .04em;
+    text-transform: uppercase; text-align: left;
+  }
+  .filters-head:hover { color: var(--text); }
+  .filters.open .filters-head { border-bottom-color: var(--border); color: var(--text); }
+  .filters-head .spacer { flex: 1; }
+  .filters-caret { transition: transform .15s; font-size: .7rem; }
+  .filters.open .filters-caret { transform: rotate(180deg); }
+  .filters-badge {
+    background: var(--accent); color: #1b1826; border-radius: 20px; font-size: .62rem;
+    font-weight: 900; padding: 1px 7px; letter-spacing: 0;
+  }
+  .filters-body { padding: 10px 11px 11px; }
+  .filter-row { display: flex; align-items: flex-start; gap: 7px; margin-bottom: 8px; flex-wrap: wrap; }
+  .filter-label {
+    flex: 0 0 62px; font-size: .62rem; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--muted); font-weight: 800; padding-top: 4px;
+  }
+  .filter-input {
+    width: 66px; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 4px 7px; font-size: .72rem; outline: none;
+  }
+  .filter-input:focus { border-color: var(--accent); }
+  .filter-input::-webkit-outer-spin-button, .filter-input::-webkit-inner-spin-button {
+    -webkit-appearance: none; margin: 0;
+  }
+  .filter-input[type=number] { -moz-appearance: textfield; }
+  .filter-dash { color: var(--muted); font-size: .74rem; padding-top: 4px; }
+  .filter-chips { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; max-height: 104px; overflow-y: auto; }
+  .fchip {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 20px; padding: 2px 8px; font-size: .65rem; cursor: pointer; white-space: nowrap;
+  }
+  .fchip:hover { border-color: var(--accent); color: var(--text); }
+  .fchip.on { background: rgba(167,139,250,.2); border-color: var(--accent); color: var(--accent); font-weight: 700; }
+  .fchip .cnt { opacity: .55; font-size: .58rem; margin-left: 3px; }
+  .filter-foot { align-items: center; margin-bottom: 0; }
+  .filter-count { flex: 1; font-size: .64rem; color: var(--muted); }
+  .filter-clear {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    border-radius: 6px; padding: 3px 10px; font-size: .66rem; cursor: pointer;
+  }
+  .filter-clear:hover { border-color: #ff6b81; color: #ff6b81; }
+
   @media (max-width: 1400px) {
     .wrap { grid-template-columns: 320px minmax(0, 1fr); }
     .sidebar-right {
@@ -427,12 +479,54 @@
     </div>
     <div class="season-toggle" id="searchSeasonToggle"
          title="Applies to search results only (recommendations have their own switch)."></div>
+    <div class="filters">
+      <button class="filters-head" id="filtersToggle">
+        <span>⚙ Filters</span>
+        <span class="spacer"></span>
+        <span class="filters-badge" id="filtersBadge" style="display:none">0</span>
+        <span class="filters-caret" id="filtersCaret">▾</span>
+      </button>
+      <div class="filters-body" id="filtersBody" style="display:none">
+        <div class="filter-row">
+          <span class="filter-label">Year</span>
+          <input class="filter-input" type="number" id="yearFrom" placeholder="from" min="1940" max="2100" inputmode="numeric">
+          <span class="filter-dash">–</span>
+          <input class="filter-input" type="number" id="yearTo" placeholder="to" min="1940" max="2100" inputmode="numeric">
+        </div>
+        <div class="filter-row">
+          <span class="filter-label">Min score</span>
+          <input class="filter-input" type="number" id="minScore" placeholder="e.g. 75" min="0" max="100" inputmode="numeric">
+        </div>
+        <div class="filter-row">
+          <span class="filter-label">Status</span>
+          <div class="filter-chips" id="chipsStatus"></div>
+        </div>
+        <div class="filter-row">
+          <span class="filter-label">Rating</span>
+          <div class="filter-chips" id="chipsAge"></div>
+        </div>
+        <div class="filter-row">
+          <span class="filter-label">Genre</span>
+          <div class="filter-chips" id="chipsGenre"></div>
+        </div>
+        <div class="filter-row">
+          <span class="filter-label">Format</span>
+          <div class="filter-chips" id="chipsFormat"></div>
+        </div>
+        <div class="filter-row filter-foot">
+          <span class="filter-count" id="filterCount"></span>
+          <button class="filter-clear" id="filterClear">Clear all</button>
+        </div>
+      </div>
+    </div>
     <div class="results" id="results"></div>
     <div class="drop-hint">
       Live search via AniList → Kitsu → MAL (auto-failover).<br>
+      ⚙ Filters narrow results by year, score, status, rating, genre and format.<br>
       Drag results into any tier or watch list.<br>
       Drag a card onto <b style="color:var(--accent)">any tab above</b> to copy it into that
       list — the original stays put, tier list ⇄ watch list.<br>
+      Dragging near a screen edge <b style="color:var(--accent)">auto-scrolls</b>.<br>
       Hover = synopsis &amp; score · dbl-click card = notes · dbl-click tier label = rename.<br>
       <b style="color:var(--accent)">✎</b> on a tab or list header renames that list.<br>
       <b style="color:var(--accent)">Right panel</b> builds recommendations from
@@ -513,14 +607,17 @@ const ANILIST = {
     if (!r.ok) throw new Error("anilist ping " + r.status);
     return Date.now() - t0;
   },
-  async search(q) {
+  /* opts.adult === true -> isAdult:null (no filter) so the client's "18+" chip has
+     something to select; otherwise the app's safe default, isAdult:false. */
+  async search(q, opts) {
+    const adult = !!(opts && opts.adult);
     const r = await fetchWithTimeout("https://graphql.anilist.co", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        query: `query($s:String){Page(perPage:12){media(search:$s,type:ANIME,isAdult:false){
-          id title{romaji english} averageScore episodes seasonYear format
+        query: `query($s:String,$a:Boolean){Page(perPage:20){media(search:$s,type:ANIME,isAdult:$a){
+          id title{romaji english} averageScore episodes seasonYear format status genres isAdult
           coverImage{large} description siteUrl}}}`,
-        variables: { s: q }
+        variables: { s: q, a: adult ? null : false }
       })
     });
     if (!r.ok) throw new Error("anilist " + r.status);
@@ -530,7 +627,8 @@ const ANILIST = {
       title: a.title.english || a.title.romaji,
       cover: a.coverImage?.large, score: a.averageScore,
       year: a.seasonYear, format: a.format, episodes: a.episodes,
-      synopsis: stripHtml(a.description), url: a.siteUrl
+      synopsis: stripHtml(a.description), url: a.siteUrl,
+      status: a.status || null, genres: a.genres || [], adult: !!a.isAdult
     }));
   }
 };
@@ -543,11 +641,19 @@ const KITSU = {
     if (!r.ok) throw new Error("kitsu ping " + r.status);
     return Date.now() - t0;
   },
-  async search(q) {
+  /* Kitsu only returns genres when they are explicitly included: the anime entries
+     reference them by id and the names arrive in the `included` array. */
+  async search(q, opts) {
     const r = await fetchWithTimeout(
-      "https://kitsu.io/api/edge/anime?filter%5Btext%5D=" + encodeURIComponent(q) + "&page%5Blimit%5D=12");
+      "https://kitsu.io/api/edge/anime?filter%5Btext%5D=" + encodeURIComponent(q) +
+      "&page%5Blimit%5D=20&include=genres" +
+      (opts && opts.adult ? "&filter%5BageRating%5D=r17" : ""));
     if (!r.ok) throw new Error("kitsu " + r.status);
     const d = await r.json();
+    const genreNames = new Map();
+    for (const g of d.included || []) {
+      if (g.type === "genres" && g.attributes?.name) genreNames.set(String(g.id), g.attributes.name);
+    }
     return (d.data || []).map(a => ({
       source: "kitsu", srcId: a.id,
       title: a.attributes?.canonicalTitle || a.attributes?.titles?.en,
@@ -556,7 +662,11 @@ const KITSU = {
       year: (a.attributes?.startDate || "").slice(0, 4) || null,
       format: a.attributes?.subtype, episodes: a.attributes?.episodeCount,
       synopsis: stripHtml(a.attributes?.synopsis),
-      url: "https://kitsu.io/anime/" + (a.attributes?.slug || a.id)
+      url: "https://kitsu.io/anime/" + (a.attributes?.slug || a.id),
+      status: a.attributes?.status || null,
+      genres: (a.relationships?.genres?.data || [])
+        .map(r => genreNames.get(String(r.id))).filter(Boolean),
+      adult: a.attributes?.ageRating ? /^(r17|r18|r18\+|x)/i.test(a.attributes.ageRating) : null
     }));
   }
 };
@@ -569,9 +679,10 @@ const JIKAN = {
     if (!r.ok) throw new Error("jikan ping " + r.status);
     return Date.now() - t0;
   },
-  async search(q) {
+  async search(q, opts) {
     const r = await fetchWithTimeout(
-      "https://api.jikan.moe/v4/anime?q=" + encodeURIComponent(q) + "&limit=12&sfw=true");
+      "https://api.jikan.moe/v4/anime?q=" + encodeURIComponent(q) +
+      "&limit=20" + (opts && opts.adult ? "" : "&sfw=true"));
     if (!r.ok) throw new Error("jikan " + r.status);
     const d = await r.json();
     return (d.data || []).map(a => ({
@@ -582,7 +693,11 @@ const JIKAN = {
       year: a.year || (a.aired?.from || "").slice(0, 4),
       format: a.type, episodes: a.episodes,
       synopsis: stripHtml(a.synopsis),
-      url: "https://myanimelist.net/anime/" + a.mal_id
+      url: "https://myanimelist.net/anime/" + a.mal_id,
+      status: a.status || null,
+      genres: (a.genres || []).map(g => g.name).filter(Boolean),
+      adult: a.rated ? /^(r\+|rx|r18|x|hentai)/i.test(a.rated)
+             : a.hentai != null ? !!a.hentai : null
     }));
   }
 };
@@ -615,11 +730,11 @@ function updateApiPill() {
   }).join(" · ");
 }
 /* retry failed calls with next provider; keep probing dead ones in background */
-async function apiSearch(q) {
+async function apiSearch(q, opts) {
   for (const p of apiOrder) {
     if (!apiState[p.id]?.alive) continue;
     try {
-      const r = await p.search(q);
+      const r = await p.search(q, opts);
       if (r.length || q) return r;
     } catch (e) {
       apiState[p.id].alive = false;          // dead — failover
@@ -2208,13 +2323,207 @@ function showTooltip(d) {
   tooltip.style.display = "block";
 }
 
+/* ==================== SEARCH FILTERS ==================== */
+/* Filters run over the results the APIs already returned (no extra requests, so they
+   toggle instantly), and every chip is generated from the result pool itself — you only
+   ever see genres/statuses/formats that are actually present in what came back.
+   Filters are deliberately NOT persisted: they are per-search-session, like the query. */
+const searchFilters = {
+  yearFrom: null, yearTo: null, minScore: null,
+  genres: new Set(), statuses: new Set(), formats: new Set(),
+  age: "any"                                   // "any" | "sfw" | "adult"
+};
+const STATUS_LABEL = { finished: "Finished", airing: "Airing", upcoming: "Upcoming",
+                       hiatus: "Hiatus", cancelled: "Cancelled" };
+const AGE_LABEL = { sfw: "All ages", adult: "18+" };
+const GENRE_CAP = 24;
+
+/* Three providers, three vocabularies — normalise once, filter everywhere else. */
+function normStatus(s) {
+  const v = String(s || "").toUpperCase().replace(/[^A-Z]/g, " ");
+  if (!v.trim()) return null;
+  if (/FINISHED|COMPLETED|COMPLETE/.test(v)) return "finished";
+  if (/RELEASING|CURRENT|AIRING/.test(v)) return "airing";
+  if (/NOT YET|UNRELEASED|UPCOMING|PLANNED/.test(v)) return "upcoming";
+  if (/HIATUS|PAUSED/.test(v)) return "hiatus";
+  if (/CANCEL|DISCONTINUED/.test(v)) return "cancelled";
+  return null;
+}
+function normFormat(f) {
+  const v = String(f || "").toUpperCase();
+  if (!v.trim()) return null;
+  if (/MOVIE|FILM/.test(v)) return "Movie";
+  if (/OVA/.test(v)) return "OVA";
+  if (/ONA/.test(v)) return "ONA";
+  if (/SPECIAL/.test(v)) return "Special";
+  if (/TV/.test(v)) return "TV";
+  if (/MANGA|NOVEL|DOUJIN|MUSIC/.test(v)) return null;   // not an anime format
+  return null;
+}
+function normGenres(g) {
+  return [].concat(g || []).map(x => String(x).toLowerCase().trim()).filter(Boolean);
+}
+/* MAL reports /10; AniList and Kitsu report /100. Filters always compare on /100. */
+function scorePct(c) {
+  if (c.score == null) return null;
+  const n = Number(c.score);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return c.source === "mal" ? n * 10 : n;
+}
+function matchesFilters(c) {
+  const f = searchFilters;
+  if (f.yearFrom != null || f.yearTo != null) {
+    const y = Number(c.year);
+    if (!Number.isFinite(y) || !y) return false;         // unknown year can't satisfy a range
+    if (f.yearFrom != null && y < f.yearFrom) return false;
+    if (f.yearTo != null && y > f.yearTo) return false;
+  }
+  if (f.minScore != null) {
+    const s = scorePct(c);
+    if (s == null || s < f.minScore) return false;
+  }
+  if (f.statuses.size && !f.statuses.has(normStatus(c.status))) return false;
+  if (f.formats.size && !f.formats.has(normFormat(c.format))) return false;
+  if (f.age === "sfw" && c.adult === true) return false;
+  if (f.age === "adult" && c.adult !== true) return false;
+  if (f.genres.size) {
+    const have = normGenres(c.genres);
+    let any = false;
+    for (const g of f.genres) if (have.includes(g)) { any = true; break; }
+    if (!any) return false;                              // genres are OR, not AND
+  }
+  return true;
+}
+function activeFilterCount() {
+  const f = searchFilters;
+  return (f.yearFrom != null ? 1 : 0) + (f.yearTo != null ? 1 : 0) + (f.minScore != null ? 1 : 0) +
+    f.genres.size + f.statuses.size + f.formats.size + (f.age !== "any" ? 1 : 0);
+}
+function resetFilters() {
+  searchFilters.yearFrom = searchFilters.yearTo = searchFilters.minScore = null;
+  searchFilters.genres.clear(); searchFilters.statuses.clear(); searchFilters.formats.clear();
+  searchFilters.age = "any";
+  ["yearFrom", "yearTo", "minScore"].forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
+}
+function toggleSetFilter(set, value) {
+  if (set.has(value)) set.delete(value); else set.add(value);
+  refreshFilters();
+}
+let _filterSig = null;
+function renderFilterUI(pool) {
+  /* Chips describe the pool, so they are rebuilt only when the pool changes — that
+     keeps a click on a chip (or a keystroke in the year box) from losing focus. */
+  const sig = pool.map(c => [c.status, c.format, c.adult, normGenres(c.genres).join(",")].join("|")).join(";");
+  if (sig !== _filterSig) {
+    _filterSig = sig;
+    fillChips("chipsStatus", STATUS_LABEL, pool, c => normStatus(c.status), searchFilters.statuses, 12);
+    fillChips("chipsFormat", null, pool, c => normFormat(c.format), searchFilters.formats, 12);
+    fillChips("chipsGenre", null, pool, c => normGenres(c.genres), searchFilters.genres, GENRE_CAP);
+    fillAgeChips(pool);
+  }
+  const active = activeFilterCount();
+  const badge = document.getElementById("filtersBadge");
+  badge.textContent = active;
+  badge.style.display = active ? "inline-block" : "none";
+  const cnt = document.getElementById("filterCount");
+  if (cnt) cnt.textContent = pool.length
+    ? (active ? pool.length + " of " + pool.length + " shown" : pool.length + " results")
+    : "";
+}
+function fillChips(hostId, labels, pool, extractor, target, cap) {
+  const host = document.getElementById(hostId);
+  if (!host) return;
+  host.innerHTML = "";
+  const counts = new Map();
+  for (const c of pool) for (const v of [].concat(extractor(c))) if (v) bump(counts, v, 1);
+  const entries = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
+    .slice(0, cap);
+  for (const [k, n] of entries) {
+    const b = document.createElement("button");
+    b.className = "fchip" + (target.has(k) ? " on" : "");
+    const text = labels ? (labels[k] || k) : k;
+    b.innerHTML = escapeHtml(text.charAt(0).toUpperCase() + text.slice(1)) +
+      '<span class="cnt">' + n + "</span>";
+    b.title = text.charAt(0).toUpperCase() + text.slice(1) + " — " + n + " result" + (n > 1 ? "s" : "");
+    b.addEventListener("click", () => toggleSetFilter(target, k));
+    host.appendChild(b);
+  }
+  if (!entries.length) {
+    const none = document.createElement("span");
+    none.className = "filter-count";
+    none.textContent = "—";
+    host.appendChild(none);
+  }
+}
+function fillAgeChips(pool) {
+  const host = document.getElementById("chipsAge");
+  if (!host) return;
+  host.innerHTML = "";
+  const adults = pool.filter(c => c.adult === true).length;
+  const known = pool.filter(c => c.adult != null).length;
+  for (const k of ["sfw", "adult"]) {
+    const n = k === "adult" ? adults : known - adults;
+    const b = document.createElement("button");
+    b.className = "fchip" + (searchFilters.age === k ? " on" : "");
+    b.innerHTML = escapeHtml(AGE_LABEL[k]) + '<span class="cnt">' + n + "</span>";
+    b.title = k === "sfw"
+      ? "Keep only non-adult entries (AniList is queried with isAdult:false)"
+      : "Show 18+/adult entries — this re-runs the current search so those titles can come back at all";
+    b.addEventListener("click", () => {
+      const next = searchFilters.age === k ? "any" : k;
+      if (next === searchFilters.age) return;
+      searchFilters.age = next;
+      /* Adult titles are excluded from the query by default, so switching this on has
+         to re-run the search — filtering the current pool alone would always be empty. */
+      if (lastSearchQuery) doSearch({ adult: next === "adult" });
+      else refreshFilters();
+    });
+    host.appendChild(b);
+  }
+}
+function refreshFilters() { renderFilterUI(searchCandidates); renderSearchResults(); }
+(function bindFilters() {
+  const head = document.getElementById("filtersToggle");
+  const body = document.getElementById("filtersBody");
+  const panel = head?.parentNode;
+  if (head && body) {
+    head.addEventListener("click", () => {
+      const open = body.style.display === "none";
+      body.style.display = open ? "block" : "none";
+      panel.classList.toggle("open", open);
+      if (open && searchCandidates.length) renderFilterUI(searchCandidates);
+    });
+  }
+  const num = (id, key) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("input", ev => {
+      const raw = ev.target.value.trim();
+      const n = raw === "" ? null : Number(raw);
+      searchFilters[key] = n == null || !Number.isFinite(n) ? null : n;
+      refreshFilters();
+    });
+  };
+  num("yearFrom", "yearFrom");
+  num("yearTo", "yearTo");
+  num("minScore", "minScore");
+  document.getElementById("filterClear")?.addEventListener("click", () => {
+    resetFilters();
+    refreshFilters();
+  });
+})();
+
 /* ==================== SEARCH ==================== */
 let searchCandidates = [];
-async function doSearch() {
+let lastSearchQuery = "";        // so the rating chip can re-run the current search
+async function doSearch(opts) {
   const q = searchInput.value.trim();
   if (!q) return;
+  lastSearchQuery = q;
+  const adult = opts && typeof opts.adult === "boolean" ? opts.adult : searchFilters.age === "adult";
   resultsEl.innerHTML = '<div class="loading">Searching…</div>';
-  const hits = await apiSearch(q);
+  const hits = await apiSearch(q, { adult });
   if (!hits.length) {
     resultsEl.innerHTML = '<div class="loading">No results — all APIs unreachable or nothing found.</div>';
     return;
@@ -2223,12 +2532,21 @@ async function doSearch() {
   renderSearchResults();
 }
 function renderSearchResults() {
+  renderFilterUI(searchCandidates);
   if (!searchCandidates.length) { resultsEl.innerHTML = ""; return; }
-  /* Search has its own "other seasons" switch, independent of the one in the
-     recommendations panel — flipping it re-filters instantly, no refetch. */
-  const pool = prefs.searchOtherSeasons ? searchCandidates : withoutOtherSeasons(searchCandidates, c => c.title);
-  const hidden = searchCandidates.length - pool.length;
+  /* Filters first, then the independent "other seasons" switch — both are pure
+     client-side views over the same pool, so toggling either is instant. */
+  const filtered = searchCandidates.filter(matchesFilters);
+  const pool = prefs.searchOtherSeasons ? filtered : withoutOtherSeasons(filtered, c => c.title);
+  const byFilter = searchCandidates.length - filtered.length;
+  const bySeason = filtered.length - pool.length;
   resultsEl.innerHTML = "";
+  if (!pool.length) {
+    resultsEl.innerHTML = '<div class="rec-err">Nothing matches the current filters' +
+      (bySeason ? " — everything left is another season of something you track" : "") +
+      ". Widen the filters, or hit Clear all.</div>";
+    return;
+  }
   pool.forEach(c => {
     const div = document.createElement("div");
     div.className = "result-card"; div.draggable = true; div.dataset.searchId = c.searchId;
@@ -2257,12 +2575,15 @@ function renderSearchResults() {
     });
     resultsEl.appendChild(div);
   });
-  if (hidden > 0) {
+  if (byFilter || bySeason) {
     const note = document.createElement("div");
     note.className = "loading";
     note.style.gridColumn = "1 / -1";
-    note.textContent = hidden + " other season" + (hidden > 1 ? "s" : "") +
-      " hidden — turn “Other seasons” on to see " + (hidden > 1 ? "them" : "it") + ".";
+    const bits = [];
+    if (byFilter) bits.push(byFilter + " by your filters");
+    if (bySeason) bits.push(bySeason + " other season" + (bySeason > 1 ? "s" : ""));
+    note.textContent = bits.join(" · ") + " hidden" +
+      (bySeason ? " — turn “Other seasons” on to see " + (bySeason > 1 ? "them" : "it") : "") + ".";
     resultsEl.appendChild(note);
   }
 }
@@ -2360,6 +2681,179 @@ document.getElementById("importFile").addEventListener("change", ev => {
   };
   r.readAsText(f);
 });
+
+/* =========================================================
+   DRAG AUTO-SCROLL — pure addition, safe to delete as a unit
+   =========================================================
+   Dragging a card from the F tier up to the tab strip means crossing the whole
+   page, and today you have to drop, scroll, re-grab.  This block keeps the drag
+   moving instead: every dragover records the pointer, and one requestAnimationFrame
+   loop scrolls the window — plus the nearest scrollable ancestor under the pointer
+   — for as long as the pointer rests in an EDGE-wide band along a viewport edge.
+   Speed ramps smoothly from 0 at the band edge to MAX_STEP at the very edge.
+   It registers its own listeners (capture phase, so nothing has to cooperate) and
+   adds no CSS. */
+(function () {
+  const EDGE = 72;         // px-wide band along each viewport edge
+  const MAX_STEP = 22;     // px per frame at the very edge (~1300 px/s at 60fps)
+  const SLACK = 4;         // slack when asking an element whether it scrolls at all
+  const STALE_MS = 1500;   // no dragover for this long => treat the drag as finished
+
+  const hasRaf = typeof requestAnimationFrame === "function";
+  const hasCancelRaf = typeof cancelAnimationFrame === "function";
+
+  let dragging = false;   // a drag is in progress (dragover set it, dragend/drop cleared it)
+  let ptrX = 0;           // last pointer position, viewport/client coords
+  let ptrY = 0;
+  let lastTarget = null;  // last dragover target, fallback when elementFromPoint fails
+  let lastMoveAt = 0;     // when the last dragover arrived
+  let rafId = null;       // non-null only while a frame is scheduled
+  let lastStepPx = 0;     // signed last vertical step (px/frame); 0 whenever idle
+
+  function getWin() { return typeof window !== "undefined" ? window : null; }
+  function getDoc() { return typeof document !== "undefined" ? document : null; }
+
+  function viewW() {
+    const w = getWin();
+    return w && typeof w.innerWidth === "number" ? w.innerWidth : 0;
+  }
+  function viewH() {
+    const w = getWin();
+    return w && typeof w.innerHeight === "number" ? w.innerHeight : 0;
+  }
+
+  /* 0 at the band edge, MAX_STEP at the viewport edge, smoothstep in between. */
+  function ramp(overBand) {
+    if (!(overBand > 0)) return 0;
+    const t = Math.min(1, overBand / EDGE);
+    return MAX_STEP * t * t * (3 - 2 * t);
+  }
+
+  function stopScrolling() {
+    if (rafId !== null && hasCancelRaf) {
+      try { cancelAnimationFrame(rafId); } catch (e) { /* nothing to cancel */ }
+    }
+    rafId = null;
+    lastStepPx = 0;
+  }
+
+  function endDrag() {
+    dragging = false;
+    lastTarget = null;
+    ptrX = 0;
+    ptrY = 0;
+    lastMoveAt = 0;
+    stopScrolling();
+  }
+
+  function scrollWindow(dx, dy) {
+    const w = getWin();
+    if (!w || typeof w.scrollBy !== "function") return;
+    try { w.scrollBy(dx, dy); } catch (e) { /* not scrollable */ }
+  }
+
+  /* <html>/<body> are the window's own scroller — walking into them would just
+     double up on the window scroll above, so the ancestor walk stops short. */
+  function isRootScroller(el) {
+    const d = getDoc();
+    if (!d) return false;
+    return el === d.documentElement || el === d.body;
+  }
+
+  function scrolls(el, vertical) {
+    if (!el || isRootScroller(el)) return false;
+    try {
+      const big = vertical ? el.scrollHeight : el.scrollWidth;
+      const box = vertical ? el.clientHeight : el.clientWidth;
+      if (typeof big !== "number" || typeof box !== "number") return false;
+      return big > box + SLACK;
+    } catch (e) { return false; }
+  }
+
+  /* Nearest scrollable ancestor under the pointer: .sidebar-right (sticky recs
+     panel), .sidebar (search results), .main, a .tier-drop/.drop-zone whose
+     content overflows it — or any other element that scrolls. */
+  function containerUnderPointer() {
+    const d = getDoc();
+    if (!d) return null;
+    let el = null;
+    if (typeof d.elementFromPoint === "function") {
+      try { el = d.elementFromPoint(ptrX, ptrY); } catch (e) { el = null; }
+    }
+    if (!el) el = lastTarget;
+    let node = el;
+    while (node && node.nodeType === 1 && !isRootScroller(node)) {
+      if (scrolls(node, true) || scrolls(node, false)) return node;
+      node = node.parentElement || null;
+    }
+    return null;
+  }
+
+  function tick() {
+    rafId = null;
+    if (!dragging) { lastStepPx = 0; return; }
+
+    /* Defensive: a drag that never reports dragend (Esc mid-drag, window blur)
+       must not leave the page scrolling forever. */
+    let now = 0;
+    try { now = typeof Date.now === "function" ? Date.now() : 0; } catch (e) { now = 0; }
+    if (now && lastMoveAt && now - lastMoveAt > STALE_MS) { endDrag(); return; }
+
+    const vw = viewW();
+    const vh = viewH();
+    let dx = 0;
+    let dy = 0;
+    if (vh > 0) {
+      if (ptrY < EDGE) dy = -ramp(EDGE - ptrY);
+      else if (ptrY > vh - EDGE) dy = ramp(ptrY - (vh - EDGE));
+    }
+    if (vw > 0) {
+      if (ptrX < EDGE) dx = -ramp(EDGE - ptrX);
+      else if (ptrX > vw - EDGE) dx = ramp(ptrX - (vw - EDGE));
+    }
+    /* Pointer is mid-screen: nothing to do, and no reason to keep the loop alive. */
+    if (!dx && !dy) { lastStepPx = 0; return; }
+
+    scrollWindow(dx, dy);
+    const box = containerUnderPointer();
+    if (box) {
+      try {
+        /* Plain assignment — the browser clamps scrollTop/scrollLeft at the ends
+           of the scroll range on its own, so no manual clamping here. */
+        if (dy) box.scrollTop = (box.scrollTop || 0) + dy;
+        if (dx) box.scrollLeft = (box.scrollLeft || 0) + dx;
+      } catch (e) { /* element went away mid-drag */ }
+    }
+    lastStepPx = dy;
+    schedule();
+  }
+
+  /* Exactly one loop: guarded by rafId, so a burst of dragover events can never
+     stack up several of them. */
+  function schedule() {
+    if (!dragging || rafId !== null || !hasRaf) return;
+    try { rafId = requestAnimationFrame(tick); } catch (e) { rafId = null; }
+  }
+
+  /* Capture phase: these run even if some other handler stops propagation. */
+  document.addEventListener("dragover", ev => {
+    if (!ev) return;
+    if (typeof ev.clientX === "number" && typeof ev.clientY === "number") {
+      ptrX = ev.clientX;
+      ptrY = ev.clientY;
+      try { lastMoveAt = typeof Date.now === "function" ? Date.now() : 0; } catch (e) { /* ignore */ }
+    }
+    lastTarget = ev.target || null;
+    dragging = true;
+    schedule();
+  }, true);
+  document.addEventListener("dragend", endDrag, true);
+  document.addEventListener("drop", endDrag, true);
+
+  /* Test hook: drive and inspect the behaviour from a smoke test. */
+  const win = getWin();
+  if (win) win.__dragAutoScroll = { active: () => dragging, lastStep: () => lastStepPx, stop: stopScrolling };
+})();
 
 /* ==================== BOOT ==================== */
 probeProviders().then(() => {
