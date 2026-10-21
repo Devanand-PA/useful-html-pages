@@ -521,7 +521,7 @@
     </div>
     <div class="results" id="results"></div>
     <div class="drop-hint">
-      Live search via AniList → Kitsu → MAL (auto-failover).<br>
+      Live search via AniList → Kitsu → MAL → TVmaze → ANN (auto-failover).<br>
       ⚙ Filters narrow results by year, score, status, rating, genre and format.<br>
       Drag results into any tier or watch list.<br>
       Drag a card onto <b style="color:var(--accent)">any tab above</b> to copy it into that
@@ -702,7 +702,102 @@ const JIKAN = {
   }
 };
 
-const PROVIDERS = [ANILIST, KITSU, JIKAN];
+/* TVmaze is a general TV database rather than an anime one, but its anime coverage is
+   real and it is the fastest of the lot. Anime entries are reliably typed "Animation"
+   (and carry an "Anime" genre), which conveniently filters out live-action reboots
+   that share a title — e.g. the 2021 Netflix Cowboy Bebop. Ratings are out of 10. */
+const TVMAZE = {
+  id: "tvmaze", label: "TVmaze",
+  async ping() {
+    const t0 = Date.now();
+    const r = await fetchWithTimeout("https://api.tvmaze.com/shows/1");
+    if (!r.ok) throw new Error("tvmaze ping " + r.status);
+    return Date.now() - t0;
+  },
+  async search(q) {
+    const r = await fetchWithTimeout("https://api.tvmaze.com/search/shows?q=" + encodeURIComponent(q));
+    if (!r.ok) throw new Error("tvmaze " + r.status);
+    const d = await r.json();
+    return (Array.isArray(d) ? d : []).map(x => x.show).filter(Boolean)
+      .filter(s => s.type === "Animation" || (s.genres || []).includes("Anime"))
+      .map(s => ({
+        source: "tvmaze", srcId: s.id,
+        title: s.name,
+        cover: s.image?.original || s.image?.medium || null,
+        score: s.rating?.average ?? null,
+        year: (s.premiered || "").slice(0, 4) || null,
+        format: "TV", episodes: null,
+        synopsis: stripHtml(s.summary), url: s.url,
+        status: s.status || null, genres: s.genres || [], adult: null
+      }));
+  }
+};
+
+/* Anime News Network's encyclopedia — the deepest anime-only catalogue left, and the
+   one that still knows old OVAs, movies and one-offs the TV databases miss. Plain GET,
+   CORS *, no key, XML out (parsed with the browser's DOMParser). It carries no score. */
+const ANN_TYPE = { tv: "TV", oav: "OVA", ova: "OVA", movie: "Movie",
+                   web: "ONA", ona: "ONA", tvspecial: "Special" };
+const ANN = {
+  id: "ann", label: "ANN", priority: 2,
+  async ping() {
+    const t0 = Date.now();
+    /* a query that cannot match anything keeps the probe payload tiny */
+    const r = await fetchWithTimeout(
+      "https://cdn.animenewsnetwork.com/encyclopedia/api.xml?title=~zzzzzzzzzzzz");
+    if (!r.ok) throw new Error("ann ping " + r.status);
+    await r.text();
+    return Date.now() - t0;
+  },
+  /* ANN adult entries are marked by their precision/type, not a boolean — so they are
+   excluded unless the search explicitly asked for 18+ results (same contract as the
+   other providers' safe default). */
+  async search(q, opts) {
+    const r = await fetchWithTimeout(
+      "https://cdn.animenewsnetwork.com/encyclopedia/api.xml?title=~" + encodeURIComponent(q),
+      { timeout: 16000 });
+    if (!r.ok) throw new Error("ann " + r.status);
+    const doc = new DOMParser().parseFromString(await r.text(), "application/xml");
+    if (doc.getElementsByTagName("parsererror").length) throw new Error("ann: unparsable XML");
+    /* api.xml mixes <manga> siblings in with the <anime> entries — keep the anime. */
+    const out = [];
+    for (const node of doc.getElementsByTagName("anime")) {
+      const infos = {};
+      for (const child of node.children) {
+        if (String(child.tagName).toLowerCase() !== "info") continue;
+        const key = child.getAttribute("type") || "";
+        (infos[key] = infos[key] || []).push(child);
+      }
+      const adult = /hentai/i.test((node.getAttribute("precision") || "") +
+                                   " " + (node.getAttribute("type") || ""));
+      if (adult && !(opts && opts.adult)) continue;
+      const title = ((infos["Main title"] || [])[0]?.textContent || node.getAttribute("name") || "").trim();
+      if (!title) continue;
+      const id = Number(node.getAttribute("id"));
+      const vintage = ((infos["Vintage"] || [])[0]?.textContent || "");
+      const year = (vintage.match(/\b(1[89]|20)\d{2}\b/) || [])[0];
+      const eps = parseInt((((infos["Number of episodes"] || [])[0]?.textContent || "")).trim(), 10);
+      const score = parseFloat(node.getElementsByTagName("ratings")[0]?.getAttribute("bayesian_score"));
+      out.push({
+        source: "ann", srcId: Number.isFinite(id) ? id : null,
+        title,
+        cover: ((infos["Picture"] || [])[0]?.getAttribute("src")) || null,
+        score: Number.isFinite(score) ? Math.round(score * 10) / 10 : null,  // ANN scores are out of 10
+        year: year ? Number(year) : null,
+        format: ANN_TYPE[String(node.getAttribute("type") || "").toLowerCase()] || null,
+        episodes: Number.isFinite(eps) ? eps : null,
+        synopsis: (((infos["Plot Summary"] || [])[0]?.textContent || "")).trim() || null,
+        url: "https://www.animenewsnetwork.com/encyclopedia/anime.php?id=" + id,
+        status: null,
+        genres: (infos["Genres"] || []).map(g => (g.textContent || "").trim()).filter(Boolean),
+        adult
+      });
+    }
+    return out;
+  }
+};
+
+const PROVIDERS = [ANILIST, KITSU, JIKAN, TVMAZE, ANN];
 const apiState = {};           // id -> {alive, ms}
 let apiOrder = PROVIDERS.slice();
 let probing = false;
@@ -715,9 +810,16 @@ async function probeProviders() {
     apiState[p.id] = { alive: res[i].status === "fulfilled",
                        ms: res[i].status === "fulfilled" ? res[i].value : Infinity };
   });
-  apiOrder = PROVIDERS.slice().sort((a, b) =>
-    (apiState[a.id]?.alive ? apiState[a.id].ms : 1e9) -
-    (apiState[b.id]?.alive ? apiState[b.id].ms : 1e9));
+  /* Providers are tried by priority first, then by measured latency within a tier, so
+     a thin database can never outrank a rich one just by being faster. ANN carries no
+     score, so it sits at priority 2 and is consulted only when the ranked databases
+     above it come back empty. */
+  apiOrder = PROVIDERS.slice().sort((a, b) => {
+    const pa = a.priority ?? 1, pb = b.priority ?? 1;
+    if (pa !== pb) return pa - pb;
+    return (apiState[a.id]?.alive ? apiState[a.id].ms : 1e9) -
+           (apiState[b.id]?.alive ? apiState[b.id].ms : 1e9);
+  });
   probing = false;
   updateApiPill();
 }
@@ -729,13 +831,16 @@ function updateApiPill() {
       p.label.split(" ")[0] + (alive ? " ✓" : " ✗") + "</span>";
   }).join(" · ");
 }
-/* retry failed calls with next provider; keep probing dead ones in background */
+/* Walk the providers in order: a dead provider is skipped, a live one that simply has
+   nothing for this query passes the search on to the next (not just errors), so an
+   obscure title unknown to the ranked databases still gets a chance with the
+   encyclopedia. Dead ones are re-probed in the background to revive. */
 async function apiSearch(q, opts) {
   for (const p of apiOrder) {
     if (!apiState[p.id]?.alive) continue;
     try {
       const r = await p.search(q, opts);
-      if (r.length || q) return r;
+      if (r.length) return r;
     } catch (e) {
       apiState[p.id].alive = false;          // dead — failover
       setTimeout(() => probeProviders(), 100);
@@ -2302,10 +2407,14 @@ document.addEventListener("mousemove", ev => {
   if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - pad;
   tooltip.style.left = x + "px"; tooltip.style.top = y + "px";
 });
-const SRC_LABEL = { anilist: "AniList", kitsu: "Kitsu", mal: "MAL" };
+const SRC_LABEL = { anilist: "AniList", kitsu: "Kitsu", mal: "MAL",
+                    tvmaze: "TVmaze", ann: "ANN" };
+/* Some providers report scores out of 10 (MAL, TVmaze, ANN) and the rest out of 100
+   (AniList, Kitsu). Displayed as-is, normalised to /100 only for filter comparisons. */
+const TEN_POINT = new Set(["mal", "tvmaze", "ann"]);
 function showTooltip(d) {
   const bits = [
-    d.score != null ? "<b>★ " + escapeHtml(String(d.score)) + "</b>" + (d.source === "mal" ? " /10" : " /100") : null,
+    d.score != null ? "<b>★ " + escapeHtml(String(d.score)) + "</b>" + (TEN_POINT.has(d.source) ? " /10" : " /100") : null,
     d.format || null,
     d.episodes ? d.episodes + " eps" : null,
     d.year || null,
@@ -2342,8 +2451,8 @@ const GENRE_CAP = 24;
 function normStatus(s) {
   const v = String(s || "").toUpperCase().replace(/[^A-Z]/g, " ");
   if (!v.trim()) return null;
-  if (/FINISHED|COMPLETED|COMPLETE/.test(v)) return "finished";
-  if (/RELEASING|CURRENT|AIRING/.test(v)) return "airing";
+  if (/FINISHED|COMPLETED|COMPLETE|ENDED/.test(v)) return "finished";
+  if (/RELEASING|CURRENT|AIRING|RUNNING/.test(v)) return "airing";
   if (/NOT YET|UNRELEASED|UPCOMING|PLANNED/.test(v)) return "upcoming";
   if (/HIATUS|PAUSED/.test(v)) return "hiatus";
   if (/CANCEL|DISCONTINUED/.test(v)) return "cancelled";
@@ -2353,8 +2462,8 @@ function normFormat(f) {
   const v = String(f || "").toUpperCase();
   if (!v.trim()) return null;
   if (/MOVIE|FILM/.test(v)) return "Movie";
-  if (/OVA/.test(v)) return "OVA";
-  if (/ONA/.test(v)) return "ONA";
+  if (/OVA|OAV/.test(v)) return "OVA";
+  if (/ONA|WEB/.test(v)) return "ONA";
   if (/SPECIAL/.test(v)) return "Special";
   if (/TV/.test(v)) return "TV";
   if (/MANGA|NOVEL|DOUJIN|MUSIC/.test(v)) return null;   // not an anime format
@@ -2363,12 +2472,13 @@ function normFormat(f) {
 function normGenres(g) {
   return [].concat(g || []).map(x => String(x).toLowerCase().trim()).filter(Boolean);
 }
-/* MAL reports /10; AniList and Kitsu report /100. Filters always compare on /100. */
+/* MAL, TVmaze and ANN report /10; AniList and Kitsu report /100. Filters always
+   compare on the normalised /100. */
 function scorePct(c) {
   if (c.score == null) return null;
   const n = Number(c.score);
   if (!Number.isFinite(n) || n <= 0) return null;
-  return c.source === "mal" ? n * 10 : n;
+  return TEN_POINT.has(c.source) ? n * 10 : n;   // /10 -> /100
 }
 function matchesFilters(c) {
   const f = searchFilters;
