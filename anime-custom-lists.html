@@ -320,6 +320,14 @@
     display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
   }
   .rec-score { color: var(--good); font-weight: 800; }
+  .rec-src { opacity: .7; font-size: .6rem; letter-spacing: .01em; }
+  /* 18+ is a *label*, not a filter: adult titles stay findable and are marked, and the
+     "All ages" chip in the search filters is the one-click way to hide them. */
+  .adult-badge {
+    font-size: .56rem; font-weight: 800; padding: 0 5px; border-radius: 20px;
+    background: rgba(255,107,129,.15); color: #ff6b81; border: 1px solid rgba(255,107,129,.4);
+    line-height: 1.5; white-space: nowrap;
+  }
   .rec-why { display: flex; gap: 4px; flex-wrap: wrap; }
   .why-chip {
     font-size: .58rem; padding: 1px 6px; border-radius: 20px; background: rgba(167,139,250,.16);
@@ -521,8 +529,10 @@
     </div>
     <div class="results" id="results"></div>
     <div class="drop-hint">
-      Live search via AniList → Kitsu → MAL → TVmaze → ANN (auto-failover).<br>
-      ⚙ Filters narrow results by year, score, status, rating, genre and format.<br>
+      Live search asks AniList, Kitsu, MAL, TVmaze and ANN <b>at once</b> and merges the
+      answers, so one dead API cannot empty your results.<br>
+      ⚙ Filters narrow results by year, score, status, rating, genre and format.
+      18+ titles are labelled, not hidden — the “All ages” chip hides them.<br>
       Drag results into any tier or watch list.<br>
       Drag a card onto <b style="color:var(--accent)">any tab above</b> to copy it into that
       list — the original stays put, tier list ⇄ watch list.<br>
@@ -596,6 +606,48 @@ function fetchWithTimeout(url, opts) {
 }
 function stripHtml(s) { return (s || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim(); }
 
+/* ---- genre vocabulary -------------------------------------------------------
+   Every provider spells genres its own way: AniList says "Sci-Fi", Kitsu says
+   "Science Fiction", ANN says "science-fiction", MAL says "Sci-Fi".  The taste model
+   compares genre strings for equality, so without normalising them a preference
+   learned from AniList would never match a Kitsu recommendation.  canonGenre() maps
+   the known spellings onto the AniList vocabulary the rest of the file is written in
+   and falls back to a tidy Title Case of whatever it was given. */
+const GENRE_ALIAS = {
+  "science fiction": "Sci-Fi", "sci fi": "Sci-Fi", "scifi": "Sci-Fi", "science-fiction": "Sci-Fi",
+  "sci-fi": "Sci-Fi", "slice of life": "Slice of Life", "slice-of-life": "Slice of Life",
+  "supernatural": "Supernatural", "super natural": "Supernatural", "super-power": "Super Power",
+  "super power": "Super Power", "martial arts": "Martial Arts", "martial-arts": "Martial Arts",
+  "mahou shoujo": "Mahou Shoujo", "magical girl": "Mahou Shoujo", "post apocalypse": "Post-Apocalyptic",
+  "post-apocalypse": "Post-Apocalyptic", "swordplay": "Swordplay", "school life": "School",
+  "school-life": "School", "high school": "School", "high-school": "School",
+  "school clubs": "School", "school-clubs": "School", "student council": "School",
+  "time travel": "Time Manipulation", "time-travel": "Time Manipulation",
+  "parallel universe": "Alternate Universe", "parallel-universe": "Alternate Universe",
+  "virtual reality": "Virtual World", "virtual-reality": "Virtual World",
+  "dark fantasy": "Dark Fantasy", "high fantasy": "High Fantasy", "fantasy world": "Fantasy",
+  "coming of age": "Coming of Age", "post apocalypse": "Post-Apocalyptic", "power suit": "Mecha",
+  "piloted robot": "Mecha", "super robot": "Mecha", "shounen": "Shounen", "seinen": "Seinen",
+  "shoujo": "Shoujo", "kids": "Kids", "adult": "Adult"
+};
+function canonGenre(g) {
+  const raw = String(g || "").trim();
+  if (!raw) return "";
+  const k = raw.toLowerCase().replace(/[_.]+/g, " ").replace(/\s+/g, " ");
+  if (GENRE_ALIAS[k]) return GENRE_ALIAS[k];
+  if (GENRE_ALIAS[k.replace(/ /g, "-")]) return GENRE_ALIAS[k.replace(/ /g, "-")];
+  return k.replace(/\b[a-z]/g, c => c.toUpperCase());
+}
+
+/* MAL asks clients to stay under ~3 requests/second. */
+let _lastJikanCall = 0;
+async function jikanThrottle() {
+  const wait = _lastJikanCall + 400 - Date.now();
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  _lastJikanCall = Date.now();
+}
+
+
 const ANILIST = {
   id: "anilist", label: "AniList",
   async ping() {
@@ -607,32 +659,90 @@ const ANILIST = {
     if (!r.ok) throw new Error("anilist ping " + r.status);
     return Date.now() - t0;
   },
-  /* opts.adult === true -> isAdult:null (no filter) so the client's "18+" chip has
-     something to select; otherwise the app's safe default, isAdult:false. */
-  async search(q, opts) {
-    const adult = !!(opts && opts.adult);
+  /* Adult entries are NOT filtered out at the API level any more: they come back with
+     isAdult flags, get an 18+ badge in the UI, and the "All ages" chip hides them.
+     Filtering them server-side is what made titles like "Redo of Healer" impossible to
+     find — the client could never learn they existed.  Synonyms are requested too, so
+     relevance ranking can match "Redo of Healer" against its romanised title. */
+  async search(q) {
     const r = await fetchWithTimeout("https://graphql.anilist.co", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        query: `query($s:String,$a:Boolean){Page(perPage:20){media(search:$s,type:ANIME,isAdult:$a){
-          id title{romaji english} averageScore episodes seasonYear format status genres isAdult
+        query: `query($s:String){Page(perPage:20){media(search:$s,type:ANIME){
+          id title{romaji english native} synonyms averageScore episodes seasonYear format status genres isAdult
           coverImage{large} description siteUrl}}}`,
-        variables: { s: q, a: adult ? null : false }
+        variables: { s: q }
       })
     });
-    if (!r.ok) throw new Error("anilist " + r.status);
+    if (!r.ok) {
+      /* The public API sometimes answers 403 with a plain-text-in-JSON explanation
+         ("temporarily disabled due to severe stability issues") instead of an outage.
+         Surface that so the UI can say *why* a provider is missing. */
+      let why = "";
+      try { why = await r.text(); } catch (e) {}
+      const disabled = /temporarily disabled|stability/i.test(why);
+      throw new Error("anilist " + r.status + (disabled ? " — API disabled upstream" : ""));
+    }
     const d = await r.json();
     return (d.data?.Page?.media || []).map(a => ({
       source: "anilist", srcId: a.id,
       title: a.title.english || a.title.romaji,
+      alts: [a.title.romaji, a.title.english, a.title.native, ...(a.synonyms || [])],
       cover: a.coverImage?.large, score: a.averageScore,
       year: a.seasonYear, format: a.format, episodes: a.episodes,
       synopsis: stripHtml(a.description), url: a.siteUrl,
-      status: a.status || null, genres: a.genres || [], adult: !!a.isAdult
+      status: a.status || null, genres: (a.genres || []).map(canonGenre), adult: !!a.isAdult
     }));
   }
 };
 
+/* Kitsu's category/genre names arrive as ids in `relationships` and are named in the
+   top-level `included` array; one lookup table per resource type, because a genre and a
+   category can share a numeric id.  Kitsu is also the app's richest fallback catalogue:
+   `/anime?filter[categories]=<slug>&sort=-averageRating` returns covers, synopses,
+   scores and popularity for a whole genre, which is what keeps the recommendations
+   panel alive while AniList's API is down. */
+function kitsuRow(a, names) {
+  const at = a.attributes || {};
+  const rel = a.relationships || {};
+  const pick = kind => (rel[kind]?.data || [])
+    .map(r => names[kind + ":" + r.id]).filter(Boolean).map(canonGenre);
+  const genres = [...pick("genres"), ...pick("categories")];
+  const rating = at.ageRating || "";
+  const adult = at.nsfw === true ? true
+    : (rating ? /^(r17|r18|r18\+|rx|nsfw|x)/i.test(rating) : null);
+  return {
+    source: "kitsu", srcId: a.id,
+    /* English when Kitsu has one: "Blue Exorcist" reads better than "Ao no Exorcist"
+       in a panel the user is skimming, and saved entries are usually in English too,
+       which also makes the title matcher line up. */
+    title: at.titles?.en || at.canonicalTitle || at.titles?.en_jp,
+    alts: Object.values(at.titles || {}).filter(Boolean),
+    cover: at.posterImage?.medium || at.posterImage?.large || at.posterImage?.small || null,
+    score: at.averageRating ? Math.round(parseFloat(at.averageRating)) : null,
+    popularity: at.userCount || 0,
+    year: Number((at.startDate || "").slice(0, 4)) || null,
+    format: at.subtype, episodes: at.episodeCount,
+    synopsis: stripHtml(at.synopsis),
+    url: "https://kitsu.io/anime/" + (at.slug || a.id),
+    status: at.status || null,
+    genres: [...new Set(genres)],
+    tags: [...new Set(genres)],
+    adult, nsfw: at.nsfw === true
+  };
+}
+function kitsuNames(d) {
+  const names = {};
+  for (const inc of d.included || []) {
+    /* Two different resources, two different spellings: a `genres` row carries
+       `attributes.name` ("Action"), a `categories` row carries `attributes.title`
+       ("Science Fiction").  Reading only `name` silently dropped every category —
+       which emptied the genre signal and the discovery validation with it. */
+    const label = inc.attributes?.name || inc.attributes?.title;
+    if (label) names[inc.type + ":" + inc.id] = label;
+  }
+  return names;
+}
 const KITSU = {
   id: "kitsu", label: "Kitsu",
   async ping() {
@@ -641,33 +751,27 @@ const KITSU = {
     if (!r.ok) throw new Error("kitsu ping " + r.status);
     return Date.now() - t0;
   },
-  /* Kitsu only returns genres when they are explicitly included: the anime entries
-     reference them by id and the names arrive in the `included` array. */
-  async search(q, opts) {
+  async search(q) {
     const r = await fetchWithTimeout(
       "https://kitsu.io/api/edge/anime?filter%5Btext%5D=" + encodeURIComponent(q) +
-      "&page%5Blimit%5D=20&include=genres" +
-      (opts && opts.adult ? "&filter%5BageRating%5D=r17" : ""));
+      "&page%5Blimit%5D=20&include=genres,categories");
     if (!r.ok) throw new Error("kitsu " + r.status);
     const d = await r.json();
-    const genreNames = new Map();
-    for (const g of d.included || []) {
-      if (g.type === "genres" && g.attributes?.name) genreNames.set(String(g.id), g.attributes.name);
-    }
-    return (d.data || []).map(a => ({
-      source: "kitsu", srcId: a.id,
-      title: a.attributes?.canonicalTitle || a.attributes?.titles?.en,
-      cover: a.attributes?.posterImage?.medium || a.attributes?.posterImage?.small,
-      score: a.attributes?.averageRating ? Math.round(parseFloat(a.attributes.averageRating)) : null,
-      year: (a.attributes?.startDate || "").slice(0, 4) || null,
-      format: a.attributes?.subtype, episodes: a.attributes?.episodeCount,
-      synopsis: stripHtml(a.attributes?.synopsis),
-      url: "https://kitsu.io/anime/" + (a.attributes?.slug || a.id),
-      status: a.attributes?.status || null,
-      genres: (a.relationships?.genres?.data || [])
-        .map(r => genreNames.get(String(r.id))).filter(Boolean),
-      adult: a.attributes?.ageRating ? /^(r17|r18|r18\+|x)/i.test(a.attributes.ageRating) : null
-    }));
+    const names = kitsuNames(d);
+    return (d.data || []).map(a => kitsuRow(a, names));
+  },
+  /* Genre discovery: one request per category slug, best-rated first.  Used to build
+     recommendations when AniList cannot be reached. */
+  async browse(slug, offset, limit) {
+    const r = await fetchWithTimeout(
+      "https://kitsu.io/api/edge/anime?filter%5Bcategories%5D=" + encodeURIComponent(slug) +
+      "&sort=-userCount&page%5Blimit%5D=" + (limit || 20) +
+      (offset ? "&page%5Boffset%5D=" + offset : "") +
+      "&include=genres,categories", { timeout: 14000 });
+    if (!r.ok) throw new Error("kitsu browse " + r.status);
+    const d = await r.json();
+    const names = kitsuNames(d);
+    return (d.data || []).map(a => kitsuRow(a, names));
   }
 };
 
@@ -679,26 +783,36 @@ const JIKAN = {
     if (!r.ok) throw new Error("jikan ping " + r.status);
     return Date.now() - t0;
   },
-  async search(q, opts) {
+  async search(q) {
+    await jikanThrottle();
     const r = await fetchWithTimeout(
-      "https://api.jikan.moe/v4/anime?q=" + encodeURIComponent(q) +
-      "&limit=20" + (opts && opts.adult ? "" : "&sfw=true"));
+      "https://api.jikan.moe/v4/anime?q=" + encodeURIComponent(q) + "&limit=20");
     if (!r.ok) throw new Error("jikan " + r.status);
     const d = await r.json();
-    return (d.data || []).map(a => ({
-      source: "mal", srcId: a.mal_id,
-      title: a.title_english || a.title,
-      cover: a.images?.jpg?.large_image_url || a.images?.jpg?.image_url,
-      score: a.score, rank: a.rank,
-      year: a.year || (a.aired?.from || "").slice(0, 4),
-      format: a.type, episodes: a.episodes,
-      synopsis: stripHtml(a.synopsis),
-      url: "https://myanimelist.net/anime/" + a.mal_id,
-      status: a.status || null,
-      genres: (a.genres || []).map(g => g.name).filter(Boolean),
-      adult: a.rated ? /^(r\+|rx|r18|x|hentai)/i.test(a.rated)
-             : a.hentai != null ? !!a.hentai : null
-    }));
+    return (d.data || []).map(a => {
+      /* Jikan v4 spells the age rating `rating` ("R - 17+ (violence & profanity)"),
+         not `rated` as the v3 docs had it — the old field name quietly made every MAL
+         row report adult:null, so the 18+ chip could never match anything. */
+      const rating = String(a.rating || "");
+      const hentai = (a.genres || []).some(g => /hentai/i.test(g.name || ""));
+      return {
+        source: "mal", srcId: a.mal_id,
+        title: a.title_english || a.title,
+        alts: [a.title, a.title_english, a.title_japanese,
+               ...(a.titles || []).map(t => t.title)].filter(Boolean),
+        cover: a.images?.jpg?.large_image_url || a.images?.jpg?.image_url,
+        score: a.score, rank: a.rank,
+        popularity: a.members || 0,
+        year: a.year || Number((a.aired?.from || "").slice(0, 4)) || null,
+        format: a.type, episodes: a.episodes,
+        synopsis: stripHtml(a.synopsis),
+        url: "https://myanimelist.net/anime/" + a.mal_id,
+        status: a.status || null,
+        genres: (a.genres || []).map(g => canonGenre(g.name)).filter(Boolean),
+        adult: hentai ? true : rating ? /^(r\+|rx|r18|x)/i.test(rating.replace(/[^a-z0-9+]/gi, ""))
+                                      : null
+      };
+    });
   }
 };
 
@@ -720,16 +834,22 @@ const TVMAZE = {
     const d = await r.json();
     return (Array.isArray(d) ? d : []).map(x => x.show).filter(Boolean)
       .filter(s => s.type === "Animation" || (s.genres || []).includes("Anime"))
-      .map(s => ({
-        source: "tvmaze", srcId: s.id,
-        title: s.name,
-        cover: s.image?.original || s.image?.medium || null,
-        score: s.rating?.average ?? null,
-        year: (s.premiered || "").slice(0, 4) || null,
-        format: "TV", episodes: null,
-        synopsis: stripHtml(s.summary), url: s.url,
-        status: s.status || null, genres: s.genres || [], adult: null
-      }));
+      .map(s => {
+        const genres = (s.genres || []).map(canonGenre);
+        return {
+          source: "tvmaze", srcId: s.id,
+          title: s.name, alts: [s.name],
+          cover: s.image?.original || s.image?.medium || null,
+          score: s.rating?.average ?? null,
+          popularity: s.weight || 0,
+          year: Number((s.premiered || "").slice(0, 4)) || null,
+          format: "TV", episodes: null,
+          synopsis: stripHtml(s.summary), url: s.url,
+          status: s.status || null, genres,
+          /* TVmaze tags adult anime in its genre list rather than a flag. */
+          adult: genres.some(g => /^adult$/i.test(g)) ? true : null
+        };
+      });
   }
 };
 
@@ -749,13 +869,12 @@ const ANN = {
     await r.text();
     return Date.now() - t0;
   },
-  /* ANN adult entries are marked by their precision/type, not a boolean — so they are
-   excluded unless the search explicitly asked for 18+ results (same contract as the
-   other providers' safe default). */
-  async search(q, opts) {
+  /* Adult ANN entries are tagged rather than dropped: they show up with an 18+ badge
+     and the "All ages" chip hides them.  See the ANILIST note for why. */
+  async search(q) {
     const r = await fetchWithTimeout(
       "https://cdn.animenewsnetwork.com/encyclopedia/api.xml?title=~" + encodeURIComponent(q),
-      { timeout: 16000 });
+      { timeout: 9000 });
     if (!r.ok) throw new Error("ann " + r.status);
     const doc = new DOMParser().parseFromString(await r.text(), "application/xml");
     if (doc.getElementsByTagName("parsererror").length) throw new Error("ann: unparsable XML");
@@ -769,8 +888,8 @@ const ANN = {
         (infos[key] = infos[key] || []).push(child);
       }
       const adult = /hentai/i.test((node.getAttribute("precision") || "") +
-                                   " " + (node.getAttribute("type") || ""));
-      if (adult && !(opts && opts.adult)) continue;
+                                   " " + (node.getAttribute("type") || "") +
+                                   " " + ((infos["Themes"] || []).map(t => t.textContent).join(" ")));
       const title = ((infos["Main title"] || [])[0]?.textContent || node.getAttribute("name") || "").trim();
       if (!title) continue;
       const id = Number(node.getAttribute("id"));
@@ -781,6 +900,8 @@ const ANN = {
       out.push({
         source: "ann", srcId: Number.isFinite(id) ? id : null,
         title,
+        alts: [title, ...(infos["Alternative title"] || []).map(t => (t.textContent || "").trim())]
+          .filter(Boolean),
         cover: ((infos["Picture"] || [])[0]?.getAttribute("src")) || null,
         score: Number.isFinite(score) ? Math.round(score * 10) / 10 : null,  // ANN scores are out of 10
         year: year ? Number(year) : null,
@@ -789,7 +910,7 @@ const ANN = {
         synopsis: (((infos["Plot Summary"] || [])[0]?.textContent || "")).trim() || null,
         url: "https://www.animenewsnetwork.com/encyclopedia/anime.php?id=" + id,
         status: null,
-        genres: (infos["Genres"] || []).map(g => (g.textContent || "").trim()).filter(Boolean),
+        genres: (infos["Genres"] || []).map(g => canonGenre((g.textContent || "").trim())).filter(Boolean),
         adult
       });
     }
@@ -797,23 +918,38 @@ const ANN = {
   }
 };
 
+/* =========================================================
+   PROVIDER HEALTH + SEARCH
+   =========================================================
+   The old search walked the providers in order and returned the FIRST list that was
+   non-empty.  That is what hid titles: Kitsu's fuzzy text search happily returns
+   "Re:Zero Director's Cut" for "redo of healer", so the walk stopped there and the
+   title that actually matched was never asked for.  The search now asks every live
+   provider in parallel, merges the pools and orders the result by how well each title
+   matches what was typed.
+   ========================================================= */
 const PROVIDERS = [ANILIST, KITSU, JIKAN, TVMAZE, ANN];
-const apiState = {};           // id -> {alive, ms}
+const apiState = {};           // id -> {alive, ms, why}
 let apiOrder = PROVIDERS.slice();
 let probing = false;
 
 async function probeProviders() {
   if (probing) return;
   probing = true;
+  const before = new Map(PROVIDERS.map(p => [p.id, apiState[p.id] ? apiState[p.id].alive : null]));
   const res = await Promise.allSettled(PROVIDERS.map(p => p.ping()));
   PROVIDERS.forEach((p, i) => {
-    apiState[p.id] = { alive: res[i].status === "fulfilled",
-                       ms: res[i].status === "fulfilled" ? res[i].value : Infinity };
+    const ok = res[i].status === "fulfilled";
+    const prev = apiState[p.id] || {};
+    apiState[p.id] = {
+      alive: ok,
+      ms: ok ? res[i].value : Infinity,
+      /* keep the real failure reason so the pill can explain *why* a provider is out.
+         A disabled AniList answers 403 without CORS headers, so in a browser this is a
+         bare "Failed to fetch" rather than anything the API actually said. */
+      why: ok ? "" : String(res[i].reason?.message || res[i].reason || prev.why || "ping failed")
+    };
   });
-  /* Providers are tried by priority first, then by measured latency within a tier, so
-     a thin database can never outrank a rich one just by being faster. ANN carries no
-     score, so it sits at priority 2 and is consulted only when the ranked databases
-     above it come back empty. */
   apiOrder = PROVIDERS.slice().sort((a, b) => {
     const pa = a.priority ?? 1, pb = b.priority ?? 1;
     if (pa !== pb) return pa - pb;
@@ -821,33 +957,178 @@ async function probeProviders() {
            (apiState[b.id]?.alive ? apiState[b.id].ms : 1e9);
   });
   probing = false;
+  /* A provider that just came back to life makes every search that ran while it was
+     down incomplete — those lists are cached, so drop the cache and let the next
+     search ask the returned provider as well. */
+  if (PROVIDERS.some(p => before.get(p.id) === false && apiState[p.id].alive === true)) {
+    clearSearchCache();
+  }
   updateApiPill();
 }
 function updateApiPill() {
   const pill = document.getElementById("apiPill");
+  if (!pill) return;
+  const notes = [];
   pill.innerHTML = "API: " + PROVIDERS.map(p => {
-    const alive = apiState[p.id]?.alive;
-    return '<span style="opacity:' + (alive ? 1 : .45) + ';color:' + (alive ? "var(--good)" : "#ff6b81") + '">' +
-      p.label.split(" ")[0] + (alive ? " ✓" : " ✗") + "</span>";
+    const st = apiState[p.id];
+    const alive = st ? st.alive : null;
+    if (st && !alive && st.why) notes.push(p.label + ": " + st.why);
+    return '<span style="opacity:' + (alive === false ? .45 : 1) +
+      ';color:' + (alive === false ? "#ff6b81" : alive ? "var(--good)" : "var(--muted)") + '">' +
+      p.label.split(" ")[0] + (alive === false ? " ✗" : alive ? " ✓" : " …") + "</span>";
   }).join(" · ");
+  pill.title = notes.length ? notes.join("\n") : "Every provider answered its probe.";
 }
-/* Walk the providers in order: a dead provider is skipped, a live one that simply has
-   nothing for this query passes the search on to the next (not just errors), so an
-   obscure title unknown to the ranked databases still gets a chance with the
-   encyclopedia. Dead ones are re-probed in the background to revive. */
+/* unknown state (still probing) counts as "try it" — otherwise a boot-time metadata
+   sync would silently find nothing at all */
+const providerUsable = p => apiState[p.id]?.alive !== false;
+
+/* ---- title relevance ---------------------------------------------------------
+   Anime titles are long and every provider spells them differently, so the useful
+   signal is *how much of what was typed the title accounts for*, not how many extra
+   words the official title carries.  Exact beats prefix beats substring, coverage of
+   the query adds proportionally, and a small specificity bonus prefers the tighter
+   title ("Overlord" over "Overlord II: The Dark Warrior").  Single-letter tokens are
+   ignored unless the query is nothing but them ("86"). */
+function queryTokens(s) {
+  const all = normTitle(s).split(" ").filter(Boolean);
+  const long = all.filter(t => t.length > 1);
+  return long.length ? long : all;
+}
+const TITLE_STOPWORDS = new Set(["the", "and", "of", "a", "an", "to", "in", "on", "for",
+  "with", "no", "my", "is", "it", "part", "season"]);
+/* The franchise word a title is really filed under: the first meaningful token.  Used
+   to rescue the "same show, different translation" case — the app's saved title
+   "Gate: Thus the JSDF Fought There" and the providers' romaji "Gate: Jieitai Kanochi
+   nite, Kaku Tatakaeri" share no phrase beyond that head word. */
+function headToken(s) {
+  const toks = normTitle(s).split(" ").filter(Boolean);
+  return toks.filter(w => w.length >= 4 && !TITLE_STOPWORDS.has(w))[0] || "";
+}
+function relevance(query, cand) {
+  const qn = normTitle(query);
+  if (!qn) return 0;
+  const qTok = queryTokens(query);
+  const qSet = new Set(qTok);
+  const names = [cand.title, ...(cand.alts || [])]
+    .map(n => (n ? normTitle(n) : "")).filter(Boolean);
+  let best = 0;
+  for (const n of names) {
+    if (n === qn) { best = Math.max(best, 100); continue; }
+    const nTok = n.split(" ").filter(Boolean);
+    const nSet = new Set(nTok);
+    let hit = 0;
+    for (const t of qSet) if (nSet.has(t)) hit++;
+    const coverage = qSet.size ? hit / qSet.size : 0;
+    let s = coverage * 70;
+    if (n.startsWith(qn + " ") || n.startsWith(qn)) s += 15;
+    else if (n.includes(qn)) s += 8;
+    s -= Math.min(8, Math.max(0, nTok.length - qTok.length) * 0.8);
+    if (s > best) best = s;
+  }
+  return Math.max(0, Math.round(best * 10) / 10);
+}
+/* Relevance first, then a row that actually carries artwork/synopsis (that is the
+   difference between a useful card and a grey placeholder), then provider priority. */
+function rankRows(query, rows) {
+  const prio = new Map(PROVIDERS.map((p, i) => [p.id, p.priority ?? 1]));
+  const scored = rows.filter(Boolean).map(r => ({
+    row: r,
+    rel: relevance(query, r),
+    art: (r.cover ? 2 : 0) + (r.synopsis ? 1 : 0),
+    prio: prio.get(r.source) ?? 1
+  }));
+  scored.sort((a, b) => b.rel - a.rel || b.art - a.art || a.prio - b.prio ||
+                        (Number(b.row.score) || 0) - (Number(a.row.score) || 0));
+  const out = [];
+  const seenKey = new Set();
+  const seenTitle = new Map();
+  for (const s of scored) {
+    const key = s.row.source + ":" + s.row.srcId;
+    if (s.row.srcId != null && seenKey.has(key)) continue;
+    seenKey.add(key);
+    /* collapse the same show arriving from several providers: keep the best-ranked
+       copy, but let a lower-ranked copy fill in fields the winner lacks */
+    const n = normTitle(s.row.title);
+    const kept = seenTitle.get(n);
+    if (kept) {
+      if (!kept.cover && s.row.cover) kept.cover = s.row.cover;
+      if (!kept.synopsis && s.row.synopsis) kept.synopsis = s.row.synopsis;
+      if (kept.score == null && s.row.score != null) kept.score = s.row.score;
+      continue;
+    }
+    seenTitle.set(n, s.row);
+    out.push(s.row);
+  }
+  return out.slice(0, 40);
+}
+
+const SEARCH_TTL = 10 * 60 * 1000;
+const _searchCache = new Map();       // normalised query -> {at, rows}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+/* Timings the smoke suite can stretch so a fixture-replayed run is deterministic. */
+const apiConfig = { searchDeadline: 3500 };
+
+function markProviderDown(p, err) {
+  if (!apiState[p.id]) return;
+  apiState[p.id].alive = false;
+  apiState[p.id].why = String(err && err.message ? err.message : (err || "request failed"));
+}
+
 async function apiSearch(q, opts) {
-  for (const p of apiOrder) {
-    if (!apiState[p.id]?.alive) continue;
+  const cacheKey = normTitle(q) + "|" + (opts && opts.adult ? "18" : "sfw");
+  const hit = _searchCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < SEARCH_TTL) return hit.rows;
+
+  const live = (apiOrder.length ? apiOrder : PROVIDERS).filter(providerUsable);
+  const got = [];                     // rows collected so far, shared with late arrivals
+  let broke = false;
+  const jobs = live.map(p => (async () => {
     try {
       const r = await p.search(q, opts);
-      if (r.length) return r;
+      if (Array.isArray(r) && r.length) got.push(...r);
+      if (apiState[p.id]) apiState[p.id].alive = true;
     } catch (e) {
-      apiState[p.id].alive = false;          // dead — failover
-      setTimeout(() => probeProviders(), 100);
+      /* Any rejection means "this provider is out": AniList's disabled API answers 403
+         *without* CORS headers, so the browser reports a bare TypeError and the JSON
+         explanation is never visible to us.  One provider going down must never cost
+         the others their rows. */
+      broke = true;
+      markProviderDown(p, e);
     }
+  })());
+  const allDone = Promise.all(jobs);
+  /* Some networks black-hole a provider outright (api.jikan.moe does on many ISPs), so
+     a request can sit there until its own timeout.  Whatever has arrived by the
+     deadline is already a usable answer; the stragglers land afterwards and refresh
+     the cache instead of freezing the search box. */
+  const finished = await Promise.race([
+    allDone.then(() => true),
+    sleep(apiConfig.searchDeadline).then(() => false)
+  ]);
+  if (broke) { updateApiPill(); setTimeout(() => probeProviders(), 2000); }
+
+  const ranked = rankRows(q, got);
+  if (ranked.length) _searchCache.set(cacheKey, { at: Date.now(), rows: ranked });
+
+  if (!finished) {
+    allDone.then(() => {
+      const later = rankRows(q, got);
+      if (!later.length) return;
+      _searchCache.set(cacheKey, { at: Date.now(), rows: later });
+      /* the user may still be looking at this exact query: fold the late arrivals in */
+      if (lastSearchQuery && normTitle(lastSearchQuery) === normTitle(q)) {
+        searchCandidates = later.map(h => ({ ...h, searchId: uid() }));
+        renderFilterUI(searchCandidates);
+        renderSearchResults();
+      }
+    }).catch(() => {});
   }
-  return [];
+  return ranked;
 }
+/* One request per provider per query per 10 minutes: the metadata back-fill and the
+   candidate hydration both re-search titles that the grid already showed. */
+function clearSearchCache() { _searchCache.clear(); }
 setInterval(() => probeProviders(), 45000);  // re-ping: revive if an API comes back
 
 /* =========================================================
@@ -1718,6 +1999,8 @@ let recWeights = null;               // scoring weights from the last successful
 let recVotes = new Map();
 let recSeen = null;
 let recOffline = false;              // current pool came from the built-in fallback list
+let recSource = "anilist";           // "anilist" | "providers" | "offline"
+let recPageN = 0;                    // provider discovery page, for "load more"
 
 function pageSignature() {
   return state.lists.filter(sourceEnabled)
@@ -1813,6 +2096,296 @@ function toCandidate(r) {
     votes: r.votes || 0, why: r.why || [], ...r, searchId: uid() };
 }
 
+/* ==================== provider-side discovery (the AniList fallback) ====================
+   AniList used to be the only source that could produce recommendations.  When its
+   public API answers 403 ("temporarily disabled due to severe stability issues") the
+   panel used to degrade to a hardcoded title list with no artwork and no synopses —
+   which is exactly the "no image" cards users see.  Kitsu is asked directly for the
+   genres and motifs the taste profile is built from; every row it returns already
+   carries a poster, a synopsis, a score and a popularity count, so the panel keeps its
+   looks *and* its ranking quality while AniList is out.
+   ================================================================================== */
+const KITSU_GENRE_SLUGS = {
+  "Isekai": ["isekai"],
+  "Fantasy": ["fantasy", "high-fantasy", "dark-fantasy"],
+  "Adventure": ["adventure"],
+  "Romance": ["romance", "love-polygon"],
+  "Comedy": ["comedy", "parody", "slapstick"],
+  "Drama": ["drama", "coming-of-age"],
+  "Sci-Fi": ["science-fiction", "space-opera", "cyberpunk"],
+  "Supernatural": ["supernatural", "demon", "deity"],
+  "Slice of Life": ["slice-of-life", "school-life"],
+  "Action": ["action", "super-power"],
+  "Horror": ["horror", "zombie", "vampire"],
+  "Mystery": ["mystery", "detective"],
+  "Psychological": ["psychological"],
+  "Thriller": ["thriller", "conspiracy"],
+  "Mecha": ["mecha", "super-robot", "piloted-robot"],
+  "Military": ["military", "war"],
+  "School": ["school-life", "high-school", "school-clubs"],
+  "Ecchi": ["ecchi"],
+  "Historical": ["historical"],
+  "Music": ["music", "idol"],
+  "Sports": ["sports"],
+  "Mahou Shoujo": ["magical-girl"]
+};
+const KITSU_TAG_SLUGS = {
+  "Swordplay": ["swordplay"], "Magic": ["magic"], "Martial Arts": ["martial-arts"],
+  "Harem": ["harem", "reverse-harem"], "Time Manipulation": ["time-travel"],
+  "Alternate Universe": ["parallel-universe"], "Virtual World": ["virtual-reality"],
+  "Reincarnation": ["isekai"], "School": ["school-life", "high-school"],
+  "Detective": ["detective"], "Zombie": ["zombie"], "Vampire": ["vampire"],
+  "Post-Apocalyptic": ["post-apocalypse"], "Mecha": ["mecha"],
+  "Military": ["military"], "Gore": ["violence"], "Food": ["cooking"],
+  "Idol": ["idol"], "Cyberpunk": ["cyberpunk"], "Politics": ["politics"],
+  "Revenge": ["revenge"], "Survival": ["survival"], "Tragedy": ["angst"],
+  "Coming of Age": ["coming-of-age"], "Found Family": ["friendship"],
+  "Love Polygon": ["love-polygon"], "Parody": ["parody"], "Satire": ["satire"]
+};
+/* The strongest genres drive discovery; motif tags widen it only after the genres, so
+   one stray keyword can never outvote the shows the user actually ranked highly. */
+function discoverySlugs(profile, max) {
+  const out = [];
+  const push = s => { if (s && !out.includes(s)) out.push(s); };
+  const gNames = (profile?.topGenres || []).map(x => x[0]);
+  const tNames = (profile?.topTags || []).map(x => x[0]);
+  for (const n of gNames.slice(0, 3)) for (const s of (KITSU_GENRE_SLUGS[n] || [])) push(s);
+  for (const n of tNames.slice(0, 6)) for (const s of (KITSU_TAG_SLUGS[n] || [])) push(s);
+  for (const n of gNames.slice(3)) for (const s of (KITSU_GENRE_SLUGS[n] || []).slice(0, 1)) push(s);
+  return out.slice(0, max);
+}
+function weightsFor(profile) {
+  return {
+    gW: new Map((profile?.topGenres || []).map(([k, v]) => [k, v])),
+    tW: new Map(profile?.tags || []),
+    gMax: Math.max(1, ...(profile?.topGenres || []).map(x => x[1])),
+    medYear: profile?.stats?.medYear || null,
+    maxVote: 1
+  };
+}
+/* Same scoring shape as scoreMedia(), but over provider rows.  Scores are normalised
+   through scorePct() first, because Kitsu reports /100 while MAL/TVmaze/ANN report /10
+   — mixing those scales is how a 7.8 ends up ranking below a 78. */
+function scoreProviderRow(c, W) {
+  let s = 0;
+  const why = [];
+  const tags = new Set(c.tags || []);
+  const gHits = (c.genres || []).filter(g => W.gW.has(g));
+  const tHits = [...tags].filter(t => W.tW.has(t) && !gHits.includes(t)).slice(0, 2);
+  for (const g of gHits) { s += (W.gW.get(g) / W.gMax) * 9; why.push(g); }
+  for (const t of tHits) s += (W.tW.get(t) / W.gMax) * 4;
+  const pct = scorePct(c);
+  if (pct) s += (pct / 100) * 5;
+  s += Math.min(3, Math.log10((c.popularity || 1) + 1) * .8);
+  const y = Number(c.year);
+  if (y && W.medYear) s += Math.max(0, 2 - Math.abs(y - W.medYear) / 15);
+  return { ...c, rank: s, why: [...new Set(why)].slice(0, 3) };
+}
+function mergeProviderRows(rows, seen, W, limit) {
+  const best = new Map();
+  for (const r of rows) {
+    if (!r || !r.title) continue;
+    if (r.nsfw === true) continue;                 // never *recommend* outright hentai
+    /* A recommendation the user cannot see is not a recommendation.  Kitsu answers a
+       genre query with 20 rows, so dropping the handful without a poster costs nothing
+       and guarantees the panel never shows a grey "no image" card. */
+    if (!r.cover) continue;
+    if (seen.looksTracked(r.title)) continue;
+    const k = normTitle(r.title);
+    if (!k) continue;
+    const prev = best.get(k);
+    if (!prev || (Number(r.score) || 0) > (Number(prev.score) || 0)) best.set(k, r);
+  }
+  const out = [];
+  for (const r of best.values()) out.push(scoreProviderRow(r, W));
+  out.sort((a, b) => b.rank - a.rank);
+  return out.slice(0, limit || 24);
+}
+/* Kitsu silently IGNORES an unknown `filter[categories]` slug and answers with the
+   whole ~22k-title catalogue ordered by rating — so a single typo would flood the
+   panel with the all-time top 20 and look like a working recommendation.  Every batch
+   is therefore checked against itself: a real genre page is mostly that genre, an
+   ignored filter is not.  The verdict is remembered per slug so a bad one costs one
+   request, ever. */
+const slugVerdict = new Map();
+async function kitsuDiscover(slugs, offset, limit) {
+  const live = slugs.filter(s => slugVerdict.get(s) !== false);
+  if (!live.length) return [];
+  const settled = await Promise.allSettled(live.map(s => KITSU.browse(s, offset, limit || 20)));
+  const rows = [];
+  settled.forEach((res, i) => {
+    const slug = live[i];
+    if (res.status !== "fulfilled") return;
+    const batch = res.value || [];
+    if (!batch.length) return;
+    if (slugVerdict.get(slug) === undefined) {
+      const want = canonGenre(slug.replace(/-/g, " "));
+      const hit = batch.filter(b => (b.genres || []).includes(want)).length;
+      if (hit < Math.max(2, Math.ceil(batch.length * .5))) {
+        slugVerdict.set(slug, false);        // filter was ignored — discard the batch
+        return;
+      }
+      slugVerdict.set(slug, true);
+    }
+    rows.push(...batch);
+  });
+  return rows;
+}
+async function providerRecs(profile, seen, limit, page) {
+  const slugs = discoverySlugs(profile, 6);
+  if (!slugs.length) return [];
+  const W = weightsFor(profile);
+  const rows = await kitsuDiscover(slugs, Math.max(0, (page || 0) * 20));
+  return mergeProviderRows(rows, seen, W, limit || 24);
+}
+
+/* ---- candidate hydration ------------------------------------------------------
+   Whatever the pool came from, a card with no poster and no synopsis is a broken
+   card.  This walks candidates that are missing something, looks the title up through
+   the ranked provider search and fills the gaps in place, repainting the panel as it
+   goes.  It never blocks the first paint and one slow provider cannot stall the list. */
+const HYDRATE_GAP = 450;
+const HYDRATE_MAX = 14;
+let hydrateTimer = null;
+let hydratePromise = null;
+function scheduleRecPaint() {
+  if (hydrateTimer) return;
+  hydrateTimer = setTimeout(() => {
+    hydrateTimer = null;
+    if (recCandidates.length) renderRecs();
+  }, 220);
+}
+function recNeedsMeta(c) { return !c.cover || !c.synopsis || c.score == null; }
+function applyHydration(c, best) {
+  /* A built-in fallback pick carries a score from the hardcoded list, on a scale that
+     belongs to no provider — replace the whole record instead of splicing a /100
+     number next to a /10 source and letting the tooltip lie about it. */
+  const wholesale = !!c.offline;
+  if (wholesale || !c.cover) c.cover = best.cover || c.cover;
+  if (wholesale || !c.synopsis) c.synopsis = best.synopsis || c.synopsis;
+  if (wholesale || c.score == null) c.score = best.score != null ? best.score : c.score;
+  if (wholesale || !c.year) c.year = best.year || c.year;
+  if (wholesale || !c.format) c.format = best.format || c.format;
+  if (wholesale || c.episodes == null) c.episodes = best.episodes != null ? best.episodes : c.episodes;
+  if (wholesale || !c.url) c.url = best.url || c.url;
+  if (wholesale || !c.srcId) { c.srcId = best.srcId != null ? best.srcId : c.srcId; c.source = best.source || c.source; }
+  if (wholesale || !(c.genres || []).length) c.genres = (best.genres && best.genres.length) ? best.genres : (c.genres || []);
+  if (best.adult === true) c.adult = true;
+  c.metaFilled = true;
+}
+async function hydrateRecCandidates() {
+  if (hydratePromise) return hydratePromise;
+  hydratePromise = (async () => {
+    try {
+      const todo = recCandidates.filter(recNeedsMeta).slice(0, HYDRATE_MAX);
+      for (const c of todo) {
+        /* nothing to ask: every provider is marked down */
+        if (!PROVIDERS.some(providerUsable)) break;
+        const best = await lookupMeta(c.title);
+        if (best && (best.cover || best.synopsis || best.score != null)) {
+          applyHydration(c, best);
+          scheduleRecPaint();
+          if (!recOffline) writeRecCache(pageSignature(), recCandidates);
+        }
+        await new Promise(r => setTimeout(r, HYDRATE_GAP));
+      }
+    } finally { hydratePromise = null; }
+  })();
+  return hydratePromise;
+}
+
+/* ---- the AniList pipeline, kept intact for when its API is reachable ---- */
+async function anilistRecs(profile_, recSeen, onErr) {
+  const { seenIds, looksTracked } = recSeen;
+  /* resolve tracked titles to AniList ids (so we can use real genres + recommendations) */
+  const wantTitles = [];
+  for (const l of state.lists) {
+    if (!sourceEnabled(l)) continue;
+    for (const e of l.entries)
+      if (!(e.source === "anilist" && e.srcId) && e.title && e.title.length > 3)
+        wantTitles.push(e.title.trim());
+  }
+  const uniqTitles = [...new Set(wantTitles)].slice(0, 40);
+  const resolved = uniqTitles.length ? await resolveAniIds(uniqTitles, onErr) : new Map();
+  // anything we just resolved IS already on the page — never recommend it back
+  for (const m of resolved.values()) seenIds.add(Number(m.id));
+
+  /* enrich the profile with real genres/tags from AniList for resolved titles */
+  const seedWeights = new Map();     // anilist id -> weight
+  for (const l of state.lists) {
+    if (!sourceEnabled(l)) continue;
+    for (const e of l.entries) {
+      const label = l.kind === "tier" ? (l.tiers.find(t => t.id === e.tierId)?.label || "") : "";
+      let w = l.kind === "tier" ? (TIER_WEIGHT[label.toUpperCase().trim()] ?? .4) : WATCH_WEIGHT;
+      if (e.score) w *= 1 + Math.max(0, (Number(e.score) - 70)) / 200;
+      const m = (e.source === "anilist" && e.srcId)
+        ? { id: Number(e.srcId), genres: [], tags: [] } : resolved.get(normTitle(e.title));
+      if (!m) continue;
+      for (const g of m.genres || []) bump(profile_.genres, g, w);
+      for (const t of (m.tags || []).slice(0, 14)) {
+        if ((t.rank || 0) >= 70) bump(profile_.tags, t.name, w * .5);
+      }
+      seedWeights.set(Number(m.id), (seedWeights.get(Number(m.id)) || 0) + w);
+    }
+  }
+  tasteProfile = profile_;
+  tasteProfile.topGenres = topEntries(profile_.genres, 8);
+  tasteProfile.topTags = topEntries(profile_.tags, 6);
+  renderTaste(tasteProfile);
+
+  /* collaborative-filter votes from their highest-weighted tracked anime */
+  const orderedSeeds = [...seedWeights.entries()].sort((a, b) => b[1] - a[1]).slice(0, 22).map(x => x[0]);
+  let votes = new Map();
+  /* Seeds are themselves tracked anime, so they MUST be sent here. seenIds only
+     restricts what we may *show*, never what the model may learn from. */
+  try { votes = await collectVotes(orderedSeeds); }
+  catch (e) { onErr(e); votes = new Map(); }
+
+  /* Discover by profile genre if votes are thin. NOTE: AniList's genre_in is an AND
+     (intersect), NOT a union — passing several genres narrows results drastically.
+     So query the single strongest genre for breadth and let the local re-rank below
+     order the results against the whole profile. */
+  if (votes.size < 8) {
+    const g = tasteProfile.topGenres.slice(0, 1).map(x => x[0]);
+    if (g.length) {
+      try {
+        const d = await anilist(
+          `query($g:[String],$ids:[Int]){Page(perPage:20){media(type:ANIME,isAdult:false,` +
+          `genre_in:$g,id_not_in:$ids,sort:[SCORE_DESC]){id}}}`,
+          { g, ids: [...seenIds].slice(0, 40) }, 12000);
+        for (const m of d?.Page?.media || []) if (!seenIds.has(m.id)) bump(votes, m.id, 3);
+      } catch (e) { onErr(e); }
+    }
+  }
+
+  const winners = [...votes.entries()]
+    .sort((a, b) => b[1] - a[1]).map(x => x[0])
+    .filter(id => !seenIds.has(id)).slice(0, 25);
+  const details = winners.length ? await fetchDetails(winners) : new Map();
+
+  /* local re-rank — weights are kept on the orchestration state so that
+     expandRecs() can score a second batch against the very same profile. */
+  recVotes = votes;
+  recWeights = {
+    gW: new Map(tasteProfile.topGenres.map(([k, v]) => [k, v])),
+    tW: new Map(profile_.tags),
+    gMax: Math.max(1, ...tasteProfile.topGenres.map(x => x[1])),
+    maxVote: Math.max(1, ...[...votes.values()])
+  };
+
+  const scored = [];
+  for (const [, a] of details) {
+    if (looksTracked(a.title?.english || a.title?.romaji)) continue;
+    scored.push(scoreMedia(a, votes, recWeights));
+  }
+  scored.sort((a, b) => b.rank - a.rank);
+  /* AniList splits franchises into many entries ("Demon Slayer: Mugen Train",
+     "...Entertainment District Arc", "...Infinity Castle").  The raw pool is kept
+     whole here — collapsing it per franchise (and the user's "other seasons" switch)
+     is done at render time, so toggling it needs no refetch. */
+  return scored;
+}
+
 async function computeRecs(force) {
   if (recBusy) return;
   recBusy = true;
@@ -1823,9 +2396,11 @@ async function computeRecs(force) {
       Date.now() - cached.at < REC_TTL && cached.recs.length) {
     recCandidates = cached.recs.map(toCandidate);
     recOffline = false;
+    recSource = cached.source || "anilist";
     recShown = REC_PAGE;
     recBusy = false;
     renderRecs();
+    if (recCandidates.some(recNeedsMeta)) hydrateRecCandidates();
     return;
   }
 
@@ -1836,126 +2411,70 @@ async function computeRecs(force) {
   recListEl.innerHTML = '<div class="rec-skel"></div><div class="rec-skel" style="margin-top:9px"></div>';
   recMoreEl.innerHTML = "";          // the previous pool is being replaced
   recNoteEl.innerHTML = "Reading your taste profile…";
+  recPageN = 0;
 
   // things already on the page are never "new" recommendations
   recSeen = buildSeenIndex();
-  const { seen, seenIds, looksTracked } = recSeen;
+  const { seen, looksTracked } = recSeen;
 
   let recs = [];
   let netErr = null;
-  try {
-    /* resolve tracked titles to AniList ids (so we can use real genres + recommendations) */
-    const wantTitles = [];
-    for (const l of state.lists) {
-      if (!sourceEnabled(l)) continue;
-      for (const e of l.entries)
-        if (!(e.source === "anilist" && e.srcId) && e.title && e.title.length > 3)
-          wantTitles.push(e.title.trim());
+  /* Undefined means "not probed yet" — treat that as reachable and let the request
+     itself fail if it is not. */
+  const aniUp = apiState.anilist?.alive !== false;
+  recOffline = false;
+  recSource = aniUp ? "anilist" : "providers";
+
+  if (aniUp) {
+    try {
+      recs = await anilistRecs(profile_, recSeen, e => { netErr = netErr || e; });
+    } catch (err) { netErr = netErr || err; }
+  }
+
+  /* AniList out (or empty): build the same kind of pool from a live provider. */
+  if (!recs.length) {
+    const slugs = discoverySlugs(tasteProfile, 6);
+    if (slugs.length) {
+      recNoteEl.innerHTML = aniUp
+        ? "AniList had nothing new — pulling candidates from Kitsu instead…"
+        : "AniList is out (its public API reports itself disabled) — building picks from Kitsu's catalogue…";
+      try {
+        recs = await providerRecs(tasteProfile, recSeen, 26, 0);
+      } catch (err) { netErr = netErr || err; }
+      if (recs.length) recSource = "providers";
     }
-    const uniqTitles = [...new Set(wantTitles)].slice(0, 40);
-    const resolved = uniqTitles.length
-      ? await resolveAniIds(uniqTitles, e => { netErr = netErr || e; }) : new Map();
-    // anything we just resolved IS already on the page — never recommend it back
-    for (const m of resolved.values()) seenIds.add(Number(m.id));
+  }
 
-    /* enrich the profile with real genres/tags from AniList for resolved titles */
-    const seedWeights = new Map();     // anilist id -> weight
-    for (const l of state.lists) {
-      if (!sourceEnabled(l)) continue;
-      for (const e of l.entries) {
-        const label = l.kind === "tier" ? (l.tiers.find(t => t.id === e.tierId)?.label || "") : "";
-        let w = l.kind === "tier" ? (TIER_WEIGHT[label.toUpperCase().trim()] ?? .4) : WATCH_WEIGHT;
-        if (e.score) w *= 1 + Math.max(0, (Number(e.score) - 70)) / 200;
-        const m = (e.source === "anilist" && e.srcId)
-          ? { id: Number(e.srcId), genres: [], tags: [] } : resolved.get(normTitle(e.title));
-        if (!m) continue;
-        for (const g of m.genres || []) bump(profile_.genres, g, w);
-        for (const t of (m.tags || []).slice(0, 14)) {
-          if ((t.rank || 0) >= 70) bump(profile_.tags, t.name, w * .5);
-        }
-        seedWeights.set(Number(m.id), (seedWeights.get(Number(m.id)) || 0) + w);
-      }
-    }
-    tasteProfile = profile_;
-    tasteProfile.topGenres = topEntries(profile_.genres, 8);
-    tasteProfile.topTags = topEntries(profile_.tags, 6);
-    renderTaste(tasteProfile);
-
-    /* collaborative-filter votes from their highest-weighted tracked anime */
-    const orderedSeeds = [...seedWeights.entries()].sort((a, b) => b[1] - a[1]).slice(0, 22).map(x => x[0]);
-    let votes = new Map();
-    /* Seeds are themselves tracked anime, so they MUST be sent here. seenIds only
-       restricts what we may *show*, never what the model may learn from. */
-    try { votes = await collectVotes(orderedSeeds); }
-    catch (e) { netErr = netErr || e; votes = new Map(); }
-
-    /* Discover by profile genre if votes are thin. NOTE: AniList's genre_in is an AND
-       (intersect), NOT a union — passing several genres narrows results drastically.
-       So query the single strongest genre for breadth and let the local re-rank below
-       order the results against the whole profile. */
-    if (votes.size < 8) {
-      const g = tasteProfile.topGenres.slice(0, 1).map(x => x[0]);
-      if (g.length) {
-        try {
-          const d = await anilist(
-            `query($g:[String],$ids:[Int]){Page(perPage:20){media(type:ANIME,isAdult:false,` +
-            `genre_in:$g,id_not_in:$ids,sort:[SCORE_DESC]){id}}}`,
-            { g, ids: [...seenIds].slice(0, 40) }, 12000);
-          for (const m of d?.Page?.media || []) if (!seenIds.has(m.id)) bump(votes, m.id, 3);
-        } catch (e) { netErr = netErr || e; }
-      }
-    }
-
-    const winners = [...votes.entries()]
-      .sort((a, b) => b[1] - a[1]).map(x => x[0])
-      .filter(id => !seenIds.has(id)).slice(0, 25);
-    const details = winners.length ? await fetchDetails(winners) : new Map();
-
-    /* local re-rank — weights are kept on the orchestration state so that
-       expandRecs() can score a second batch against the very same profile. */
-    recVotes = votes;
-    recWeights = {
-      gW: new Map(tasteProfile.topGenres.map(([k, v]) => [k, v])),
-      tW: new Map(profile_.tags),
-      gMax: Math.max(1, ...tasteProfile.topGenres.map(x => x[1])),
-      maxVote: Math.max(1, ...[...votes.values()])
-    };
-
-    const scored = [];
-    for (const [, a] of details) {
-      if (looksTracked(a.title?.english || a.title?.romaji)) continue;
-      scored.push(scoreMedia(a, votes, recWeights));
-    }
-    scored.sort((a, b) => b.rank - a.rank);
-    /* AniList splits franchises into many entries ("Demon Slayer: Mugen Train",
-       "...Entertainment District Arc", "...Infinity Castle").  The raw pool is kept
-       whole here — collapsing it per franchise (and the user's "other seasons"
-       switch) is done at render time, so toggling it needs no refetch. */
-    recs = scored;
-    recOffline = false;
-
-    if (!recs.length) {
-      recs = offlineRecs(tasteProfile, seen, 20, looksTracked);
-      recOffline = true;
-      recNoteEl.innerHTML = netErr
-        ? "⚠ Could not reach AniList (" + escapeHtml(netErr.message || "network") +
-          ") — these are built-in picks matched to your profile."
-        : "⚠ AniList had nothing new for this profile — these are built-in picks.";
-    } else {
-      recNoteEl.innerHTML = "Ranked by how strongly your top genres, tier placements and scores line up.";
-      writeRecCache(sig, recs);
-    }
-  } catch (err) {
+  if (!recs.length) {
     recs = offlineRecs(tasteProfile, seen, 20, looksTracked);
     recOffline = true;
-    recNoteEl.innerHTML = "⚠ Could not reach AniList (" + escapeHtml(err.message || "network") +
-      ") — these are built-in picks matched to your profile.";
+    recSource = "offline";
+    const allDown = PROVIDERS.every(p => apiState[p.id]?.alive === false);
+    recNoteEl.innerHTML = allDown
+      ? "⚠ No anime API is reachable right now (AniList is disabled upstream and the others " +
+        "did not answer) — these are built-in picks matched to your profile. Their artwork and " +
+        "synopses fill in as soon as one API answers."
+      : netErr
+        ? "⚠ Could not reach the APIs (" + escapeHtml(netErr.message || "network") +
+          ") — these are built-in picks matched to your profile. Their artwork and synopses " +
+          "will fill in as soon as an API answers."
+        : "⚠ Nothing new was found for this profile — these are built-in picks.";
+  } else if (recSource === "providers") {
+    const why = aniUp ? "AniList returned nothing new"
+                       : "AniList is not answering (its public API reports itself disabled)";
+    recNoteEl.innerHTML = "ℹ " + why + " — these picks come from Kitsu and are ranked " +
+      "against your taste profile (genres, motifs, tiers and scores).";
+  } else {
+    recNoteEl.innerHTML = "Ranked by how strongly your top genres, tier placements and scores line up.";
   }
 
   recCandidates = recs.map(toCandidate);
   recShown = REC_PAGE;
   recBusy = false;
   renderRecs();
+  if (recSource !== "offline") writeRecCache(sig, recCandidates);
+  /* cards that still lack artwork or a synopsis get back-filled in the background */
+  if (recCandidates.some(recNeedsMeta)) hydrateRecCandidates();
 }
 
 /* ==================== sidebar rendering ==================== */
@@ -2047,14 +2566,18 @@ function renderRecs() {
     div.title = "Drag into any tier · hover for synopsis";
     div.innerHTML =
       (r.cover ? '<img src="' + escapeHtml(r.cover) + '" alt="" loading="lazy">'
-               : '<div class="rc-noimg">no image</div>') +
+               : '<div class="rc-noimg">' +
+                 (recNeedsMeta(r) && PROVIDERS.some(providerUsable) ? "loading…" : "no image") +
+                 "</div>") +
       '<div class="rec-body">' +
         '<div class="rec-title">' + escapeHtml(r.title) + "</div>" +
         '<div class="rec-meta"><span class="rec-score">' +
           (r.score != null ? "★ " + r.score : "★ ?") + "</span>" +
+          (r.adult === true ? '<span class="adult-badge" title="Marked 18+ by the provider">18+</span>' : "") +
           (() => { const fy = [r.format, r.year].filter(Boolean).join(" · ");
                    return fy ? "<span>" + escapeHtml(fy) + "</span>" : ""; })() +
           (r.votes > 3 ? "<span title=\"Liked by people who also liked your picks\">👥 " + r.votes + "</span>" : "") +
+          (r.source ? '<span class="rec-src">' + escapeHtml(SRC_LABEL[r.source] || "") + "</span>" : "") +
         "</div>" +
         (r.why && r.why.length
           ? '<div class="rec-why">' + r.why.slice(0, 3)
@@ -2091,10 +2614,14 @@ function renderRecs() {
     btn.disabled = recMoreBusy;
     if (recMoreBusy) btn.textContent = "Loading more…";
     else if (moreLeft) btn.textContent = "Load " + Math.min(REC_PAGE, visible.length - shown) + " more";
-    else btn.textContent = recOffline ? "Load more built-in picks" : "Load more from AniList";
+    else if (recOffline) btn.textContent = "Load more built-in picks";
+    else if (recSource === "providers") btn.textContent = "Load more from Kitsu";
+    else btn.textContent = "Load more from AniList";
     btn.title = recOffline
       ? "Reveal more of the built-in picks"
-      : "Ask AniList for another batch, scored against your taste profile";
+      : recSource === "providers"
+        ? "Ask Kitsu for another batch of genres, scored against your taste profile"
+        : "Ask AniList for another batch, scored against your taste profile";
     btn.addEventListener("click", () => {
       if (recBusy) return;              // a recompute is repainting the panel
       if (moreLeft) { recShown += REC_PAGE; renderRecs(); }
@@ -2118,6 +2645,9 @@ async function expandRecs() {
   /* rebuild rather than reuse: entries may have been added since the last pass, and
      anything now tracked must be excluded from the new batch. */
   recSeen = buildSeenIndex();
+  /* A pool cached while AniList was healthy is still fine to *show*, but "load more"
+     must not keep knocking on a provider that has since gone away. */
+  if (recSource === "anilist" && apiState.anilist?.alive === false) recSource = "providers";
   recMoreBusy = true;
   try {
     renderRecs();                      // inside the try, so the busy flag can never latch
@@ -2133,6 +2663,25 @@ async function expandRecs() {
       recCandidates = recCandidates.concat(fresh.map(toCandidate)).sort((a, b) => rankOf(b) - rankOf(a));
       recShown += REC_PAGE;
       recNoteEl.innerHTML = "Loaded " + fresh.length + " more built-in picks.";
+      return;
+    }
+
+    /* Provider-driven pool (AniList is out): step to the next slice of the same genre
+       discovery so "load more" genuinely moves on instead of repeating page one. */
+    if (recSource === "providers") {
+      const have = new Set(recCandidates.map(c => normTitle(c.title)));
+      recPageN += 1;
+      const fresh = (await providerRecs(tasteProfile || buildTasteProfile(), recSeen, 26, recPageN))
+        .filter(c => !have.has(normTitle(c.title)));
+      if (!fresh.length) {
+        recNoteEl.innerHTML = "Kitsu had nothing new left for this profile — hit ↻ Refresh to rebuild.";
+        return;
+      }
+      recCandidates = recCandidates.concat(fresh.map(toCandidate))
+        .sort((a, b) => rankOf(b) - rankOf(a));
+      recShown += REC_PAGE;
+      recNoteEl.innerHTML = "Loaded " + fresh.length + " more picks from Kitsu.";
+      if (recCandidates.some(recNeedsMeta)) hydrateRecCandidates();
       return;
     }
 
@@ -2578,16 +3127,15 @@ function fillAgeChips(pool) {
     b.className = "fchip" + (searchFilters.age === k ? " on" : "");
     b.innerHTML = escapeHtml(AGE_LABEL[k]) + '<span class="cnt">' + n + "</span>";
     b.title = k === "sfw"
-      ? "Keep only non-adult entries (AniList is queried with isAdult:false)"
-      : "Show 18+/adult entries — this re-runs the current search so those titles can come back at all";
+      ? "Hide the titles a provider flags as 18+"
+      : "Keep only titles a provider flags as 18+";
     b.addEventListener("click", () => {
       const next = searchFilters.age === k ? "any" : k;
       if (next === searchFilters.age) return;
       searchFilters.age = next;
-      /* Adult titles are excluded from the query by default, so switching this on has
-         to re-run the search — filtering the current pool alone would always be empty. */
-      if (lastSearchQuery) doSearch({ adult: next === "adult" });
-      else refreshFilters();
+      /* Adult rows are already in the pool (they are tagged, not filtered out at the
+         source), so this is a pure client-side view — no refetch needed. */
+      refreshFilters();
     });
     host.appendChild(b);
   }
@@ -2627,18 +3175,28 @@ function refreshFilters() { renderFilterUI(searchCandidates); renderSearchResult
 /* ==================== SEARCH ==================== */
 let searchCandidates = [];
 let lastSearchQuery = "";        // so the rating chip can re-run the current search
-async function doSearch(opts) {
-  const q = searchInput.value.trim();
+async function doSearch(arg) {
+  /* Called three ways: the button passes a click event, the Enter key passes one too,
+     and the smoke suite passes a title string.  Only a real options object carries
+     `adult`. */
+  const opts = (arg && typeof arg === "object" && !arg.target && "adult" in arg) ? arg : {};
+  const q = (typeof arg === "string" ? arg : searchInput.value).trim();
   if (!q) return;
+  if (typeof arg === "string") searchInput.value = q;
   lastSearchQuery = q;
-  const adult = opts && typeof opts.adult === "boolean" ? opts.adult : searchFilters.age === "adult";
-  resultsEl.innerHTML = '<div class="loading">Searching…</div>';
-  const hits = await apiSearch(q, { adult });
+  resultsEl.innerHTML = '<div class="loading">Searching every provider…</div>';
+  /* Adult titles are included in the query and tagged afterwards: hiding them at the
+     provider made whole shows unfindable, and the "All ages" chip filters them on the
+     client in one click. */
+  const hits = await apiSearch(q, opts);
   if (!hits.length) {
-    resultsEl.innerHTML = '<div class="loading">No results — all APIs unreachable or nothing found.</div>';
+    const down = PROVIDERS.filter(p => apiState[p.id]?.alive === false).map(p => p.label);
+    resultsEl.innerHTML = '<div class="loading">No results for “' + escapeHtml(q) + "”." +
+      (down.length ? " (" + escapeHtml(down.join(", ")) + " did not answer.)" : "") + "</div>";
     return;
   }
   searchCandidates = hits.map(h => ({ ...h, searchId: uid() }));
+  renderFilterUI(searchCandidates);
   renderSearchResults();
 }
 function renderSearchResults() {
@@ -2663,8 +3221,11 @@ function renderSearchResults() {
     div.innerHTML =
       (c.cover ? '<img src="' + escapeHtml(c.cover) + '" alt="" loading="lazy">' : "") +
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:4px">' +
-        '<span class="score-pill ' + (c.score != null ? "" : "na") + '">' +
-          (c.score != null ? "★ " + c.score : "★ ?") + "</span>" +
+        '<span style="display:flex;gap:4px;align-items:center">' +
+          '<span class="score-pill ' + (c.score != null ? "" : "na") + '">' +
+            (c.score != null ? "★ " + c.score : "★ ?") + "</span>" +
+          (c.adult === true ? '<span class="adult-badge" title="Marked 18+ by the provider">18+</span>' : "") +
+        "</span>" +
         '<span class="rc-year">' + escapeHtml([c.format, c.year].filter(Boolean).join(" · ")) + "</span>" +
       "</div>" +
       '<div class="rc-title">' + escapeHtml(c.title) + "</div>" +
@@ -2704,44 +3265,87 @@ document.getElementById("searchBtn").addEventListener("click", doSearch);
 searchInput.addEventListener("keydown", ev => { if (ev.key === "Enter") doSearch(); });
 
 /* ==================== META SYNC (seeded entries) ==================== */
+const META_GAP = 700;                // spacing between per-entry lookups
+const HIT_MIN_RELEVANCE = 20;        // below this a "match" is just a guess
 let syncing = false;
 function needsMeta(e) {
   // old saves could be marked "done" yet hold no data — require actual fields
   if (e.cover && (e.synopsis || e.score != null)) return false;
   return (e.syncTries || 0) < 4;               // retry cap so we never loop forever
 }
+/* Pick the provider row that actually looks like `title`.  The old version returned
+   hits[0] whenever nothing overlapped, which is how a "Redo of Healer" entry could end
+   up wearing a Re:Zero poster.  Relevance comes from the same graded matcher the
+   search results are ordered by, and a tie prefers the row that carries artwork.
+   Two ways to qualify: a genuinely good score, or a weaker score whose head word is
+   exactly the query's head word (the same show under a different translation). */
+const HIT_RELAXED_RELEVANCE = 8;
 function pickBestHit(title, hits) {
-  // score candidates by token overlap instead of a brittle substring check
-  const norm = s => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  const toks = new Set(norm(title).split(" ").filter(w => w.length > 2));
-  let best = null, bestScore = 0;
+  if (!Array.isArray(hits) || !hits.length) return null;
+  let best = null, bestRel = -1, bestArt = -1;
   for (const h of hits) {
-    const score = norm(h.title).split(" ").filter(w => toks.has(w)).length;
-    if (score > bestScore) { bestScore = score; best = h; }
+    if (!h || !h.title) continue;
+    const rel = relevance(title, h);
+    const art = (h.cover ? 2 : 0) + (h.synopsis ? 1 : 0) + (h.score != null ? 1 : 0);
+    if (rel > bestRel || (rel === bestRel && art > bestArt)) { best = h; bestRel = rel; bestArt = art; }
   }
-  return best || hits[0] || null;
+  if (!best) return null;
+  if (bestRel >= HIT_MIN_RELEVANCE) return best;
+  const head = headToken(title);
+  if (bestRel >= HIT_RELAXED_RELEVANCE && head && head === headToken(best.title)) return best;
+  return null;
 }
+/* Search, and if the full title finds nothing believable fall back to the franchise
+   stem ("X Season 2" -> "X") — sequel titles are the ones providers spell differently. */
+async function lookupMeta(title) {
+  let hits;
+  try { hits = await apiSearch(title); } catch (e) { return null; }
+  let best = pickBestHit(title, hits);
+  if (!best) {
+    const base = baseTitle(title);
+    if (base && normTitle(base) && normTitle(base) !== normTitle(title)) {
+      try { best = pickBestHit(title, await apiSearch(base)); } catch (e) { /* offline */ }
+    }
+  }
+  return best;
+}
+/* Fill, never blank: a partial record must not lose what it already had. */
+function applyEntryMeta(e, best) {
+  if (!best) return false;
+  if (best.source) { e.source = best.source; e.srcId = best.srcId; }
+  if (best.cover) e.cover = best.cover;
+  if (best.score != null) e.score = best.score;
+  if (best.year) e.year = best.year;
+  if (best.format) e.format = best.format;
+  if (best.episodes != null) e.episodes = best.episodes;
+  if (best.synopsis) e.synopsis = best.synopsis;
+  if (best.url) e.url = best.url;
+  if (e.cover && (e.synopsis || e.score != null)) e.metaDone = true;
+  return true;
+}
+/* Three titles in flight at a time: the providers are independent, so a fresh seed
+   list fills in roughly a third of the wall-clock time, and 3 concurrent requests is
+   well inside every provider's published limits. */
+const META_BATCH = 3;
 async function syncMissingMeta() {
   if (syncing) return;
   const pending = state.lists.flatMap(l => l.entries).filter(needsMeta);
   if (!pending.length) return;
   syncing = true;
-  for (const e of pending) {
-    e.syncTries = (e.syncTries || 0) + 1;
-    try {
-      const best = pickBestHit(e.title, await apiSearch(e.title));
-      if (best && (best.cover || best.synopsis || best.score != null)) {
-        e.source = best.source; e.srcId = best.srcId; e.cover = best.cover;
-        e.score = best.score; e.year = best.year; e.format = best.format;
-        e.episodes = best.episodes; e.synopsis = best.synopsis; e.url = best.url;
-        e.metaDone = true;
-      }
-    } catch (err) { /* keep going */ }
-    doSave();
-    render();                                   // cheap enough at this scale
-    await new Promise(r => setTimeout(r, 2200)); // stay under AniList's ~30 req/min cap
-  }
-  syncing = false;
+  try {
+    for (let i = 0; i < pending.length; i += META_BATCH) {
+      const batch = pending.slice(i, i + META_BATCH);
+      await Promise.all(batch.map(async e => {
+        e.syncTries = (e.syncTries || 0) + 1;
+        applyEntryMeta(e, await lookupMeta(e.title));
+      }));
+      doSave();
+      render();                                   // cheap enough at this scale
+      /* 700ms between batches keeps the combined request rate under both AniList's
+         30/min and MAL's 3/s while still chewing through a seed list quickly */
+      await new Promise(r => setTimeout(r, META_GAP));
+    }
+  } finally { syncing = false; }
 }
 
 /* ==================== EXPORT / IMPORT ==================== */
@@ -2966,24 +3570,58 @@ document.getElementById("importFile").addEventListener("change", ev => {
 })();
 
 /* ==================== BOOT ==================== */
-probeProviders().then(() => {
-  render();
-  renderRecs();                 // shows the empty state until recommendations land
-  bootRecs();                   // waits for metadata sync, then builds recommendations
-});
+/* Paint from localStorage before touching the network.  Probes cost up to a full
+   API_TIMEOUT when a provider is unreachable, and nothing about the saved lists (or
+   their cards) needs a live API to be displayed. */
+render();
+renderRecs();                 // shows the empty state until recommendations land
 updateSaveState();
 doSave();
 
-/* Kick off the recommender once the page has back-filled covers/scores: those enriched
-   entries carry AniList ids, which makes recommendations considerably sharper. Capped at
-   ~24s so a long metadata sync never leaves the panel spinning indefinitely. */
+const bootReady = (async () => {
+  await probeProviders();     // decides which providers the rest of the boot may use
+  render();                   // the metadata sync can now pick its sources
+  renderRecs();
+  await bootRecs();
+  /* Recommendations are usable at this point; finishing the poster/synopsis back-fill
+     here is what makes the promises `ready` waits on meaningful for the smoke suite. */
+  if (recCandidates.some(recNeedsMeta)) await hydrateRecCandidates();
+})();
+
+/* Recommendations are cheap to build (one genre sweep) and embarrassing to withhold, so
+   they are painted straight away from whatever the saved profile already knows — the
+   posters and scores from the last session are still in localStorage.  The metadata
+   back-fill then sharpens the profile, and one final rebuild folds that in.
+   Previously the panel waited for the whole back-fill (up to 24s) before showing a
+   single pick, which on a slow network looked like "recommendations are broken". */
 async function bootRecs() {
-  for (let i = 0; i < 16 && syncing; i++) await new Promise(r => setTimeout(r, 1500));
-  if (syncing && !recCandidates.length) {
-    recNoteEl.innerHTML = "Metadata still syncing — recommendations will sharpen shortly.";
-  }
-  computeRecs();
+  await computeRecs();
+  if (!syncing) return;
+  for (let i = 0; i < 24 && syncing; i++) await new Promise(r => setTimeout(r, 1500));
+  if (syncing) return;              // still running: the next ↻ Refresh picks it up
+  await computeRecs(true);
 }
+
+/* ==================== TEST HOOK ====================
+   The jsdom smoke suite (tests/smoke.mjs) drives the app through this and nothing else.
+   It is inert for normal use. */
+window.__animeTest = {
+  ready: bootReady,
+  state: () => state,
+  apiState: () => apiState,
+  recSource: () => recSource,
+  apiSearch,
+  doSearch,
+  searchCandidates: () => searchCandidates,
+  recCandidates: () => recCandidates,
+  computeRecs,
+  syncMissingMeta,
+  hydrateRecCandidates,
+  apiConfig,
+  pickBestHit,
+  relevance,
+  PROVIDERS
+};
 </script>
 </body>
 </html>
