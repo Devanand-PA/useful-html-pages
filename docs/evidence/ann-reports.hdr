@@ -1,0 +1,15 @@
+HTTP/2 200 
+date: Wed, 21 Oct 2026 23:48:55 GMT
+content-type: text/xml;charset=UTF-8
+server: cloudflare
+vary: accept-encoding
+x-frame-options: SAMEORIGIN
+received-at: 2026-10-21 23:48:55 UTC
+strict-transport-security: max-age=31536000
+permissions-policy: geolocation=(), camera=(), microphone=()
+cache-control: private, max-age=0, must-revalidate
+set-cookie: ann5_session_id=AOtufPUUUi43cROn9cEWTjcYN5xMqkM1-1792626535631; Path=/; secure; HttpOnly; Domain=.animenewsnetwork.com; SameSite=Lax
+cf-cache-status: DYNAMIC
+cf-ray: a4e427e6ecad118e-COK
+alt-svc: h3=":443"; ma=86400
+

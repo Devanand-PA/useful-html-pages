@@ -1,0 +1,6 @@
+--- https://api.jikan.moe/v4/anime/1 (ipv4 forced) ---
+code=000 connect=0.000000 total=8.001180
+--- https://api.jikan.moe/v4/genres/anime (ipv4 forced) ---
+code=000 connect=0.000000 total=8.000943
+--- jikan.moe marketing site (control) ---
+jikan.moe -> 200

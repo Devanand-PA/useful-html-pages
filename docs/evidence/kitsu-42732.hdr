@@ -1,0 +1,25 @@
+HTTP/2 404 
+date: Wed, 21 Oct 2026 23:49:58 GMT
+content-type: application/vnd.api+json
+access-control-allow-methods: GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS
+access-control-allow-origin: *
+access-control-expose-headers: 
+access-control-max-age: 3600
+alt-svc: h3=":443"; ma=86400
+cache-control: no-cache
+referrer-policy: strict-origin-when-cross-origin
+server: cloudflare
+strict-transport-security: max-age=31536000; preload
+vary: Accept, Origin
+x-content-type-options: nosniff
+x-download-options: noopen
+x-frame-options: SAMEORIGIN
+x-permitted-cross-domain-policies: none
+x-request-id: 992839bb-cd79-4275-8470-24035d4a5cc1
+x-runtime: 0.034842
+x-xss-protection: 1; mode=block
+nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+cf-cache-status: DYNAMIC
+report-to: {"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=TEbk8dnczhE13cCju4%2FS2ZzYtf2VRQab9FCa6yNEB%2FZsQbYC1494MDHa7w%2FMTUGarHK%2B9wMLjq25PmbCl2kegSynYp2ArWXa%2B7fbvjyMYuqnLKT9jDgKpAfuKareETgw12QNmq888g%3D%3D"}]}
+cf-ray: a4e4296efbccc91f-COK
+

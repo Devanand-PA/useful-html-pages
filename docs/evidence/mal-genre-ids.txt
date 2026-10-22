@@ -1,0 +1,63 @@
+scraped from the genre sidebar of myanimelist.net/anime/genre/{1/Action,18/Mecha,36/Slice_of_Life}
+1	Action
+2	Adventure
+4	Comedy
+5	Avant Garde
+6	Mythology
+7	Mystery
+8	Drama
+9	Ecchi
+10	Fantasy
+11	Strategy Game
+13	Historical
+14	Horror
+17	Martial Arts
+18	Mecha
+19	Music
+20	Parody
+21	Samurai
+22	Romance
+23	School
+24	Sci-Fi
+25	Shoujo
+26	Girls Love
+27	Shounen
+29	Space
+31	Super Power
+32	Vampire
+35	Harem
+36	Slice of Life
+37	Supernatural
+38	Military
+39	Detective
+40	Psychological
+41	Suspense
+42	Seinen
+43	Josei
+46	Award Winning
+47	Gourmet
+48	Workplace
+50	Adult Cast
+51	Anthropomorphic
+52	CGDCT
+53	Childcare
+55	Delinquents
+56	Educational
+57	Gag Humor
+58	Gore
+59	High Stakes Game
+60	Idols (Female)
+62	Isekai
+63	Iyashikei
+64	Love Polygon
+68	Organized Crime
+69	Otaku Culture
+70	Performing Arts
+71	Pets
+72	Reincarnation
+75	Showbiz
+76	Survival
+78	Time Travel
+79	Video Game
+80	Visual Arts
+82	Urban Fantasy

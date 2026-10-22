@@ -1,0 +1,14 @@
+{
+  "name": "anime-custom-lists-smoke",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "jsdom smoke tests for anime-custom-lists.html (fixture-replayed network)",
+  "scripts": {
+    "test": "node smoke.mjs",
+    "capture": "bash capture-fixtures.sh"
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0"
+  }
+}

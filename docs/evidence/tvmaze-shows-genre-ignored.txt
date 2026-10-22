@@ -1,0 +1,6 @@
+GET https://api.tvmaze.com/shows?genre=anime&page=0  -> 200, 240 rows (param ignored)
+  Under the Dome  genres=['Drama', 'Science-Fiction', 'Thriller']
+  Person of Interest  genres=['Action', 'Crime', 'Science-Fiction']
+  Bitten  genres=['Drama', 'Horror', 'Romance']
+  Arrow  genres=['Drama', 'Action', 'Science-Fiction']
+  True Detective  genres=['Drama', 'Crime', 'Thriller']

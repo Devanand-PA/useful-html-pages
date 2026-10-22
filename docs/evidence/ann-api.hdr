@@ -1,0 +1,17 @@
+HTTP/2 200 
+date: Wed, 21 Oct 2026 23:48:52 GMT
+content-type: text/xml;charset=UTF-8
+server: cloudflare
+vary: accept-encoding
+x-frame-options: SAMEORIGIN
+received-at: 2026-10-21 23:48:52 UTC
+strict-transport-security: max-age=31536000
+permissions-policy: geolocation=(), camera=(), microphone=()
+access-control-allow-origin: *
+cache-control: public
+expires: Thu, 22 Oct 2026 23:43:57 GMT
+x-ann: skip state commit
+cf-cache-status: DYNAMIC
+cf-ray: a4e427cd8c6ec91f-COK
+alt-svc: h3=":443"; ma=86400
+

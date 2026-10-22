@@ -1,0 +1,4 @@
+query: myanimelist.net/anime.php?q=redo of healer&cat=anime
+/anime/40750/Kaifuku_Jutsushi_no_Yarinaoshi
+/anime/52991/Sousou_no_Frieren
+(all ids on page: 11)
