@@ -15,6 +15,7 @@
 #   * Jikan  /v4/anime/1 and /v4/anime?q=...         (may be unreachable -> status recorded)
 #   * TVmaze /shows/1 and /search/shows?q=...
 #   * ANN    /encyclopedia/api.xml?title=~...        raw XML
+#   * EverythingMoe /section/anime                   ranked toplist (HTML) for the ▶ watch chooser
 #
 # Per-title lookups are captured for every seed / fallback-pool title found in the
 # app, so the metadata back-fill has a fixture for whatever title it asks about.
@@ -79,6 +80,11 @@ fetch "https://kitsu.io/api/edge/anime?page%5Blimit%5D=1"                       
 fetch "https://api.tvmaze.com/shows/1"                                               "$FIX/tvmaze-ping.json"
 fetch "https://cdn.animenewsnetwork.com/encyclopedia/api.xml?title=~zzzzzzzzzzzz"    "$FIX/ann-ping.xml"
 fetch "https://api.jikan.moe/v4/anime/1"                                             "$FIX/jikan-ping.json"
+
+# --- EverythingMoe: ranked toplist page the ▶ watch-site chooser refreshes from.
+# Capture is HTML; if it ever 404s the app keeps its bundled top-five, and the
+# fetch() helper's {} fallback makes the refresh fail cleanly in the suite. ---
+fetch "https://everythingmoe.com/section/anime"                                      "$FIX/everythingmoe-anime.html"
 
 # --- the reported bug title, exactly as the app queries it ---
 ROH=$(urlenc "redo of healer")

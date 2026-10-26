@@ -183,6 +183,67 @@
   .item:hover .remove-btn { visibility: visible; }
   .item .remove-btn:hover { background: rgba(0,0,0,.7); }
 
+  /* watch-online badge: every cover grows a ▶ on hover; clicking it opens the
+     chooser listing EverythingMoe's top five (see WATCH ONLINE in the script) */
+  .watch-btn {
+    position: absolute; z-index: 6; width: 34px; height: 34px; border: 0;
+    border-radius: 50%; background: rgba(0,0,0,.55); color: #fff;
+    font-size: 13px; line-height: 1; padding: 0; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    visibility: hidden; opacity: 0; transition: opacity .12s, background .12s;
+  }
+  .item:hover .watch-btn, .result-card:hover .watch-btn, .rec-card:hover .watch-btn {
+    visibility: visible; opacity: 1;
+  }
+  .watch-btn:hover { background: var(--accent); color: #1b1826; }
+  .item .watch-btn { top: 74px; left: 50%; transform: translate(-50%, -50%); }
+  .result-card .watch-btn { top: 95px; left: 50%; transform: translate(-50%, -50%); }
+  .result-card .watch-btn.no-cover {
+    top: 10px; left: auto; right: 10px; transform: none; width: 28px; height: 28px;
+  }
+  .rec-card .watch-btn {
+    top: 52px; left: 39px; transform: translate(-50%, -50%);
+    width: 26px; height: 26px; font-size: 10px;
+  }
+
+  /* site chooser opened by the ▶ badge: EverythingMoe's current top five */
+  .watch-menu {
+    position: fixed; z-index: 1500; width: 252px; background: #1d1a2b;
+    border: 1px solid var(--accent); border-radius: 12px; padding: 7px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.55); display: none;
+  }
+  .watch-menu .wm-head {
+    font-size: .72rem; color: var(--muted); padding: 5px 8px 7px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .watch-menu .wm-head b { color: var(--text); }
+  .watch-menu .wm-site {
+    display: flex; align-items: center; gap: 8px; width: 100%; background: transparent;
+    border: 0; color: var(--text); padding: 7px 8px; border-radius: 8px; cursor: pointer;
+    font-size: .8rem; text-align: left;
+  }
+  .watch-menu .wm-site:hover { background: rgba(167,139,250,.16); }
+  .watch-menu .wm-rank { flex: 0 0 13px; color: var(--muted); font-weight: 800; font-size: .66rem; }
+  .watch-menu .wm-name {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .watch-menu .wm-flag { flex: 0 0 auto; color: var(--muted); font-size: .6rem; }
+  .watch-menu .wm-foot {
+    display: flex; align-items: center; gap: 8px; margin-top: 6px;
+    padding: 6px 8px 3px; border-top: 1px solid var(--border);
+  }
+  .watch-menu .wm-status {
+    flex: 1; min-width: 0; font-size: .62rem; color: var(--muted); text-decoration: none;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .watch-menu .wm-status:hover { color: var(--accent); }
+  .watch-menu .wm-refresh {
+    flex: 0 0 auto; background: var(--panel2); color: var(--muted);
+    border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px;
+    cursor: pointer; font-size: .72rem;
+  }
+  .watch-menu .wm-refresh:hover { border-color: var(--accent); color: var(--text); }
+
   /* tooltip */
   .tooltip {
     position: fixed; z-index: 1000; width: 330px; background: #1d1a2b;
@@ -201,6 +262,10 @@
   }
   .tooltip .tt-syn { margin-top: 9px; color: #cfcbe2; max-height: 150px; overflow-y: auto; }
   .tooltip .tt-link { margin-top: 8px; display: inline-block; color: var(--accent); font-size: .74rem; }
+  .tooltip .tt-hint {
+    margin-top: 9px; padding-top: 7px; border-top: 1px solid var(--border);
+    color: var(--muted); font-size: .64rem;
+  }
 
   /* modal */
   .modal-backdrop {
@@ -537,7 +602,8 @@
       Drag a card onto <b style="color:var(--accent)">any tab above</b> to copy it into that
       list — the original stays put, tier list ⇄ watch list.<br>
       Dragging near a screen edge <b style="color:var(--accent)">auto-scrolls</b>.<br>
-      Hover = synopsis &amp; score · dbl-click card = notes · dbl-click tier label = rename.<br>
+      Hover = synopsis &amp; score · dbl-click card = notes · dbl-click tier label = rename
+      · ▶ on a cover = pick one of EverythingMoe’s top five anime sites to search on.<br>
       <b style="color:var(--accent)">✎</b> on a tab or list header renames that list.<br>
       <b style="color:var(--accent)">Right panel</b> builds recommendations from
       your tiers + watch list and scores.
@@ -590,6 +656,15 @@
 </div>
 
 <div class="tooltip" id="tooltip"></div>
+
+<div class="watch-menu" id="watchMenu">
+  <div class="wm-head">Watch <b class="wm-title"></b> on:</div>
+  <div class="wm-list"></div>
+  <div class="wm-foot">
+    <a class="wm-status" href="https://everythingmoe.com/section/anime" target="_blank" rel="noopener"></a>
+    <button class="wm-refresh" type="button" title="Re-check everythingmoe.com for a new top five now">↻</button>
+  </div>
+</div>
 
 <script>
 "use strict";
@@ -1589,6 +1664,7 @@ function makeCard(list, e) {
   div.innerHTML =
     (list.kind === "tier" ? '<div class="tier-chip">' + escapeHtml(tierLabel) + "</div>" : "") +
     '<button class="remove-btn" title="Remove">✕</button>' +
+    watchBtnHtml(true) +
     (e.cover ? '<img src="' + escapeHtml(e.cover) + '" alt="" loading="lazy">'
              : '<div class="noimg">🖼 no image yet</div>') +
     '<div class="it-title">' + escapeHtml(e.title) + "</div>" +
@@ -2569,6 +2645,7 @@ function renderRecs() {
                : '<div class="rc-noimg">' +
                  (recNeedsMeta(r) && PROVIDERS.some(providerUsable) ? "loading…" : "no image") +
                  "</div>") +
+      watchBtnHtml(true) +
       '<div class="rec-body">' +
         '<div class="rec-title">' + escapeHtml(r.title) + "</div>" +
         '<div class="rec-meta"><span class="rec-score">' +
@@ -2923,6 +3000,199 @@ document.addEventListener("dblclick", ev => {
   if (n !== null) { e.notes = n; render(); }
 });
 
+/* ==================== WATCH ONLINE (EverythingMoe top five) ====================
+   EverythingMoe (https://everythingmoe.com) curates a *ranked* toplist of anime
+   streaming sites — the Anime Streaming section at /section/anime lists the #1
+   pick first. The ▶ badge every cover grows on hover opens a chooser with the
+   current TOP FIVE, so you decide which site to search for that card's title.
+
+   "Updates as the top sites change": on every boot the app re-reads that section
+   (direct fetch first — that path goes live the day EverythingMoe serves CORS
+   headers — then two public CORS relays as a best effort, since today it does
+   not), parses the ranked /s/<site> links and re-orders the menu. The first
+   source that answers wins and is cached in localStorage, so a successful
+   refresh survives later offline sessions; the ↻ in the menu footer re-runs the
+   chain on demand. When everything is unreachable the bundled snapshot below is
+   used, and the footer says so. Sites the app has no verified search route for
+   still show up (ranked, named) — they open their EverythingMoe entry instead
+   of a blind search-URL guess.
+
+   Per-site search routes, verified against the live sites on 2026-10-26
+   (server-rendered results for real titles, none for gibberish):
+     Re:Anime  https://reanime.to/search?q=<q>      (mirrors: reanime.cz, reanime.wtf, reindex.to)
+     Anikoto   https://anikototv.to/filter?keyword=<q>
+     animepahe https://animepahe.pw/search/<q>       (site-declared OpenSearch template; bot-walled,
+               loads fine in a real browser)
+     Miruro    https://www.miruro.cx/search?query=<q>
+     Gotaku    no shareable search route (overlay UI only) → menu opens the site */
+const WATCH_REGISTRY = {
+  reanime:   { name: "Re:Anime",  url: "https://reanime.to",    search: "/search?q={q}" },
+  anikoto:   { name: "Anikoto",   url: "https://anikototv.to",  search: "/filter?keyword={q}" },
+  animepahe: { name: "animepahe", url: "https://animepahe.pw",  search: "/search/{q}" },
+  miruro:    { name: "Miruro",    url: "https://www.miruro.cx", search: "/search?query={q}" },
+  gotaku:    { name: "Gotaku",    url: "https://gotaku.to" }
+};
+/* Bundled snapshot of the top five, 2026-10-26 — the offline default until a
+   live refresh (or the cache) replaces it. Live refreshes can return ids the
+   registry has never heard of; those resolve to their EverythingMoe entry. */
+const WATCH_BUNDLED = [
+  { id: "reanime", name: "Re:Anime" },   { id: "anikoto", name: "Anikoto" },
+  { id: "animepahe", name: "animepahe" }, { id: "miruro", name: "Miruro" },
+  { id: "gotaku", name: "Gotaku" }
+];
+const EM_SECTION_URL = "https://everythingmoe.com/section/anime";
+const EM_CACHE_KEY = "animeTrackerWatchSites_v1";
+const EM_SOURCES = [
+  u => u,
+  u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
+  u => "https://corsproxy.io/?url=" + encodeURIComponent(u)
+];
+/* ranked /s/<id> links → [{id, name}] in toplist order; deduped, page-chrome safe */
+function parseEmTopSites(html) {
+  const rows = []; const seen = new Set();
+  let doc = null;
+  try { doc = new DOMParser().parseFromString(html, "text/html"); } catch (e) { return rows; }
+  for (const a of doc.querySelectorAll('a[href^="/s/"]')) {
+    let id = "";
+    try { id = decodeURIComponent(a.getAttribute("href").slice(3).split(/[#?]/)[0] || "").trim(); }
+    catch (e) { continue; }
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const name = (a.textContent || "").replace(/\s+/g, " ").trim();
+    rows.push({ id, name: name || id });
+  }
+  return rows;
+}
+/* registry row if known (trusted name + search template), else EverythingMoe entry */
+function resolveWatchSites(rows) {
+  return rows.slice(0, 5).map((r, i) => {
+    const known = WATCH_REGISTRY[r.id];
+    if (known) return { id: r.id, rank: i + 1, name: known.name, url: known.url, search: known.search || null };
+    return { id: r.id, rank: i + 1, name: r.name || r.id,
+             url: "https://everythingmoe.com/s/" + encodeURIComponent(r.id), search: null };
+  });
+}
+function loadWatchCache() {
+  try {
+    const c = JSON.parse(localStorage.getItem(EM_CACHE_KEY) || "null");
+    if (c && Array.isArray(c.rows) && c.rows.length >= 5 && c.at) return c;
+  } catch (e) { /* corrupt cache = fresh start */ }
+  return null;
+}
+let watchCache = loadWatchCache();
+let watchSites = resolveWatchSites(watchCache ? watchCache.rows : WATCH_BUNDLED);
+let watchSource = watchCache ? "cache" : "bundled";     // "live" | "cache" | "bundled"
+let watchRefreshRun = null;
+async function refreshWatchSites() {
+  if (watchRefreshRun) return watchRefreshRun;          // fold concurrent callers in
+  watchRefreshRun = (async () => {
+    for (const make of EM_SOURCES) {
+      try {
+        const signal = typeof AbortSignal !== "undefined" && AbortSignal.timeout
+          ? AbortSignal.timeout(12000) : undefined;
+        const res = await fetch(make(EM_SECTION_URL), signal ? { signal } : undefined);
+        if (!res || !res.ok) continue;
+        const rows = parseEmTopSites(await res.text());
+        if (rows.length >= 5) {
+          watchCache = { at: Date.now(), rows: rows.slice(0, 5) };
+          try { localStorage.setItem(EM_CACHE_KEY, JSON.stringify(watchCache)); } catch (e) {}
+          watchSites = resolveWatchSites(watchCache.rows);
+          watchSource = "live";
+          /* a background boot refresh may land while the chooser is open: repaint it */
+          if (watchMenu && watchMenu.style.display === "block" && watchMenuTitle) renderWatchMenu(watchMenuTitle);
+          return true;
+        }
+      } catch (e) { /* CORS-blocked / offline / relay down: try the next source */ }
+    }
+    return false;
+  })();
+  const out = watchRefreshRun;
+  try { return await out; } finally { watchRefreshRun = null; }
+}
+const watchMenu = document.getElementById("watchMenu");
+const watchUrlFor = (site, title) =>
+  site.search ? site.url + site.search.replace("{q}", encodeURIComponent(title)) : site.url;
+function renderWatchMenu(title) {
+  watchMenu.querySelector(".wm-title").textContent = title;
+  const list = watchMenu.querySelector(".wm-list");
+  list.innerHTML = "";
+  watchSites.forEach(s => {
+    const known = !!WATCH_REGISTRY[s.id];
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "wm-site";
+    b.title = s.search
+      ? "Search " + s.name + " for this title — opens in a new tab"
+      : known
+        ? "No shareable search link for " + s.name + " yet — opens the site in a new tab"
+        : "New in the top five — opens its EverythingMoe entry in a new tab";
+    b.innerHTML =
+      '<span class="wm-rank">' + s.rank + "</span>" +
+      '<span class="wm-name">' + escapeHtml(s.name) + "</span>" +
+      '<span class="wm-flag">' + (s.search ? "search ↗" : known ? "site ↗" : "EverythingMoe ↗") + "</span>";
+    b.addEventListener("click", () => {
+      hideWatchMenu();
+      window.open(watchUrlFor(s, title), "_blank", "noopener");
+    });
+    list.appendChild(b);
+  });
+  const status = watchMenu.querySelector(".wm-status");
+  status.textContent = watchSource === "live"
+    ? "live · top five on everythingmoe.com ↗"
+    : watchSource === "cache" && watchCache
+      ? "cached " + new Date(watchCache.at).toISOString().slice(0, 10) + " · everythingmoe.com ↗"
+      : "bundled list · couldn't reach everythingmoe.com ↗";
+  const refresh = watchMenu.querySelector(".wm-refresh");
+  refresh.onclick = () => {
+    refresh.textContent = "…";
+    refreshWatchSites().then(ok => {
+      refresh.textContent = "↻";
+      if (ok && watchMenu.style.display === "block") renderWatchMenu(title);
+    }).catch(() => { refresh.textContent = "↻"; });
+  };
+}
+let watchMenuKey = null, watchMenuTitle = null;
+function showWatchMenu(x, y, title, key) {
+  renderWatchMenu(title);
+  watchMenu.style.display = "block";
+  const r = watchMenu.getBoundingClientRect();
+  watchMenu.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + "px";
+  watchMenu.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + "px";
+  watchMenuKey = key;
+  watchMenuTitle = title;
+}
+function hideWatchMenu() { watchMenu.style.display = "none"; watchMenuKey = null; watchMenuTitle = null; }
+document.addEventListener("click", ev => {
+  if (watchMenu.style.display !== "block") return;
+  if (ev.target.closest?.(".watch-menu") || ev.target.closest?.(".watch-btn")) return;
+  hideWatchMenu();
+});
+document.addEventListener("keydown", ev => { if (ev.key === "Escape") hideWatchMenu(); });
+
+/* `no-cover` = the card has no artwork block to centre the badge on (only a
+   coverless search result can look like that), so it docks to a corner. */
+function watchBtnHtml(hasCover) {
+  return '<button type="button" class="watch-btn' + (hasCover ? "" : " no-cover") +
+    '" title="Pick one of EverythingMoe\'s top five anime sites to search — opens in a new tab">▶</button>';
+}
+document.addEventListener("click", ev => {
+  const btn = ev.target.closest?.(".watch-btn");
+  if (!btn) return;
+  const card = btn.closest(".item, .result-card, .rec-card");
+  let title = null, key = null;
+  if (card?.classList.contains("item")) {
+    const list = findList(card.dataset.listId);
+    const entry = list?.entries.find(x => x.id === card.dataset.entryId);
+    title = entry?.title; key = "i:" + card.dataset.entryId;
+  } else {
+    const cand = findCandidate(card?.dataset.searchId);
+    title = cand?.title; key = "s:" + card?.dataset.searchId;
+  }
+  if (!title) return;
+  ev.stopPropagation();
+  if (watchMenuKey === key) hideWatchMenu();           // second click on the same badge: toggle
+  else showWatchMenu(ev.clientX, ev.clientY, title, key);
+});
+
 /* ==================== TOOLTIP ==================== */
 let ttTimer = null;
 function findCandidate(id) {
@@ -2977,7 +3247,8 @@ function showTooltip(d) {
     '<div class="tt-syn">' +
       escapeHtml(d.synopsis || "No synopsis available (metadata may still be syncing).") +
     "</div>" +
-    (d.url ? '<a class="tt-link" href="' + escapeHtml(d.url) + '" target="_blank">Open page →</a>' : "");
+    (d.url ? '<a class="tt-link" href="' + escapeHtml(d.url) + '" target="_blank">Open page →</a>' : "") +
+    '<div class="tt-hint">▶ on the cover = pick one of EverythingMoe\'s top five anime sites to search</div>';
   tooltip.style.display = "block";
 }
 
@@ -3220,6 +3491,7 @@ function renderSearchResults() {
     div.className = "result-card"; div.draggable = true; div.dataset.searchId = c.searchId;
     div.innerHTML =
       (c.cover ? '<img src="' + escapeHtml(c.cover) + '" alt="" loading="lazy">' : "") +
+      watchBtnHtml(!!c.cover) +
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:4px">' +
         '<span style="display:flex;gap:4px;align-items:center">' +
           '<span class="score-pill ' + (c.score != null ? "" : "na") + '">' +
@@ -3577,6 +3849,9 @@ render();
 renderRecs();                 // shows the empty state until recommendations land
 updateSaveState();
 doSave();
+/* Re-read EverythingMoe's ranked top five in the background. Never blocks the
+   boot — the ▶ chooser serves the bundled/cache list until this lands. */
+refreshWatchSites().catch(() => {});
 
 const bootReady = (async () => {
   await probeProviders();     // decides which providers the rest of the boot may use
@@ -3620,6 +3895,8 @@ window.__animeTest = {
   apiConfig,
   pickBestHit,
   relevance,
+  watchSites: () => watchSites,
+  refreshWatchSites,
   PROVIDERS
 };
 </script>

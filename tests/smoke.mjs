@@ -20,9 +20,12 @@
  *
  * Scenarios (drive everything through window.__animeTest, added by the app):
  *   A  recommendations are visual   .rec-card has an <img>, every candidate has cover+synopsis
- *   B  metadata back-fill           every tier-list entry gains a cover and a synopsis
- *   C  adult title searchable       doSearch("redo of healer") surfaces the title
- *   D  relevance ranking            that title is inside the first 5 results
+ *   B  metadata back-fill          every tier-list entry gains a cover and a synopsis
+ *   C  adult title searchable      doSearch("redo of healer") surfaces the title
+ *   D  relevance ranking           that title is inside the first 5 results
+ *   F  watch chooser                 every card's ▶ opens the site chooser; it lists
+ *                                 EverythingMoe's ranked top five, and picking a site
+ *                                 searches it for that card's title (currently Re:Anime)
  *
  * Exit codes: 0 all pass · 1 something failed · 2 test hook missing (nothing run) ·
  *             3 harness/boot failure (app did not boot at all).
@@ -83,7 +86,9 @@ function loadFixture(name) {
         fixture: name,
         status,
         body,
-        type: name.endsWith(".xml") ? "application/xml" : "application/json",
+        type: name.endsWith(".xml") ? "application/xml"
+          : name.endsWith(".html") ? "text/html"
+          : "application/json",
       };
     }
   } catch { /* missing fixture */ }
@@ -215,6 +220,16 @@ function routeRequest(u, init) {
       return rec || { ...EMPTY.xml, fixture: null, miss: `ann id: ${id}` };
     }
     return loadFixture("ann-ping.xml") || { ...EMPTY.xml, fixture: null, miss: "ann ping" };
+  }
+
+  /* ---- EverythingMoe: ranked toplist page that feeds the ▶ watch-site chooser.
+   * The app fetches the section page directly first (jsdom has no CORS, so this
+   * rule is the "live" path); the CORS relays it falls back to in real browsers
+   * end up here as unknown hosts when the fixture is missing. */
+  if (host.includes("everythingmoe")) {
+    return loadFixture("everythingmoe-anime.html") || {
+      ...EMPTY.json, fixture: null, miss: `everythingmoe ${p}`,
+    };
   }
 
   /* Unknown host: keep the app alive with an empty payload, but record it so a new
@@ -378,6 +393,16 @@ function hookStatus(hook) {
 /* ============================================================================
  * scenarios
  * ==========================================================================*/
+/* The ▶ "watch online" contract: the chooser lists EverythingMoe's ranked top five
+ * (https://everythingmoe.com/section/anime), and each site's search route comes from
+ * the app's WATCH_REGISTRY. Pinned here: Re:Anime is #1 with the verified route
+ * https://reanime.to/search?q=<title> (checked 2026-10). If the ranking or a route
+ * changes, update WATCH_PREFIX/WATCH_SITE here together with WATCH_REGISTRY /
+ * WATCH_BUNDLED in the app and re-capture the everythingmoe fixture — that drift
+ * is exactly what scenario F is here to catch. */
+const WATCH_PREFIX = "https://reanime.to/search?q=";
+const WATCH_SITE = "Re:Anime";
+
 function makeScenarios({ win, doc, hook }) {
   /* A — recommendation cards are visual ------------------------------------- */
   async function scenarioA() {
@@ -556,7 +581,112 @@ function makeScenarios({ win, doc, hook }) {
     return `hit at position ${idx + 1}/${cands.length}: ${titlesOf(cands.slice(0, 5), 5)}`;
   }
 
-  return { A: scenarioA, B: scenarioB, C: scenarioC, D: scenarioD };
+  /* F — the ▶ chooser searches EverythingMoe's top five ----------------------
+   * Grid items, search results and recommendations each carry exactly one ▶
+   * .watch-btn; clicking it must open the site chooser (not navigate), the chooser
+   * must list exactly the current top five in ranked order, and picking a site
+   * must open that site's search for the card's own title in a new tab. The #1
+   * contract is pinned (Re:Anime + its verified /search?q= route), the no-route
+   * site (Gotaku) must open its homepage, and a live refresh from the fixture must
+   * re-order the menu the same way. window.open is stubbed throughout. */
+  async function scenarioF() {
+    await waitFor(() => doc.querySelectorAll(".item").length > 0, 5000,
+      "seeded .item cards to render");
+    /* D leaves result cards behind; a lone run performs its own search */
+    if (!doc.querySelectorAll(".result-card").length) await runSearch();
+    await waitFor(() => doc.querySelectorAll(".result-card").length > 0, 6000,
+      "at least one .result-card to render").catch(() => {});
+    if (typeof hook.computeRecs === "function") {
+      await hook.computeRecs(true).catch(() => {});
+      await waitFor(() => doc.querySelectorAll(".rec-card").length > 0, 10000,
+        "at least one .rec-card to render").catch(() => {});
+    }
+
+    const st = hook.state();
+    const menu = doc.getElementById("watchMenu");
+    if (!menu) throw new Error("no #watchMenu element in the page");
+    let opened = null;
+    const realOpen = win.open;
+    win.open = (url, target) => { opened = { url, target }; return null; };
+
+    const checkKind = (sel, label, resolveTitle) => {
+      const cards = [...doc.querySelectorAll(sel)];
+      if (!cards.length) return;
+      const bad = cards.filter((c) => c.querySelectorAll(".watch-btn").length !== 1);
+      if (bad.length) throw new Error(`${bad.length}/${cards.length} ${label} cards do not carry exactly one ▶ .watch-btn`);
+      const card = cards[0];
+      const title = resolveTitle(card);
+      if (!title) throw new Error(`could not resolve the title of the clicked ${label} card`);
+
+      /* 1 — the badge opens the chooser, the chooser lists the ranked top five */
+      opened = null;
+      card.querySelector(".watch-btn").click();
+      if (menu.style.display !== "block") throw new Error(`${label} ▶ did not open the site chooser`);
+      if (opened) throw new Error(`${label} ▶ navigated directly (${JSON.stringify(opened.url)}) instead of opening the chooser`);
+      if (menu.querySelector(".wm-title").textContent !== title)
+        throw new Error(`chooser title ${JSON.stringify(menu.querySelector(".wm-title").textContent)} != card title ${JSON.stringify(title)}`);
+      const rows = [...menu.querySelectorAll(".wm-site")];
+      if (rows.length !== 5) throw new Error(`chooser lists ${rows.length} sites, expected the top five`);
+      const names = rows.map((r) => r.querySelector(".wm-name").textContent);
+      if (new Set(names).size !== 5) throw new Error(`chooser names are not unique: ${names.join(", ")}`);
+
+      /* 2 — picking the #1 site searches it for this card's title (pinned contract) */
+      const sites = typeof hook.watchSites === "function" ? hook.watchSites() : null;
+      if (!sites || !Array.isArray(sites) || sites.length !== 5)
+        throw new Error(`watchSites() returned ${JSON.stringify(sites && sites.length)}, expected five`);
+      const top = sites[0];
+      if (top.id !== "reanime" || !/Re:Anime/.test(top.name))
+        throw new Error(`top site is ${JSON.stringify(top && top.name)} (${JSON.stringify(top && top.id)}), expected "Re:Anime" (reanime) — re-capture the everythingmoe fixture together with the app constants if the ranking really changed`);
+      opened = null;
+      rows[0].click();
+      if (!opened) throw new Error(`clicking the #1 site in the ${label} chooser opened nothing`);
+      const want = WATCH_PREFIX + encodeURIComponent(title);
+      if (opened.url !== want)
+        throw new Error(`${label} #1 search opened ${JSON.stringify(opened.url)}, expected ${JSON.stringify(want)}`);
+      if (opened.target !== "_blank") throw new Error(`${label} #1 targeted ${JSON.stringify(opened.target)}, expected "_blank"`);
+
+      /* 3 — a site with no shareable search route opens its homepage instead */
+      const noRoute = sites.find((s) => s.id === "gotaku");
+      if (noRoute) {
+        const row = rows[noRoute.rank - 1];
+        if (!/Gotaku/.test(row.querySelector(".wm-name").textContent))
+          throw new Error(`rank ${noRoute.rank} row shows ${JSON.stringify(row.textContent)}, expected Gotaku`);
+        opened = null;
+        row.click();
+        if (!opened || opened.url !== noRoute.url)
+          throw new Error(`no-route site opened ${JSON.stringify(opened && opened.url)}, expected ${JSON.stringify(noRoute.url)}`);
+      }
+      return title;
+    };
+    try {
+      const titles = [
+        checkKind(".item", "grid item", (card) => {
+          const list = (st.lists || []).find((l) => l.id === card.dataset.listId);
+          return (list?.entries || []).find((e) => e.id === card.dataset.entryId)?.title;
+        }),
+        checkKind(".result-card", "search result", (card) =>
+          (hook.searchCandidates() || []).find((c) => c.searchId === card.dataset.searchId)?.title),
+        checkKind(".rec-card", "recommendation", (card) =>
+          (hook.recCandidates() || []).find((c) => c.searchId === card.dataset.searchId)?.title),
+      ].filter(Boolean);
+      if (!titles.length) throw new Error("no card kinds with a ▶ badge were found to click");
+
+      /* 4 — the boot refresh must have upgraded the list from the fixture ("live"),
+       * proving the parse/resolve/cache pipeline end-to-end. */
+      let src = "n/a";
+      if (typeof hook.refreshWatchSites === "function") {
+        await hook.refreshWatchSites();
+        const status = menu.querySelector(".wm-status")?.textContent || "";
+        src = /live/.test(status) ? "live" : status || "no status text";
+      }
+      return `chooser lists the top five (${titles.length} card kind(s) clicked); #1 ${WATCH_SITE} search verified`
+        + ` for: ${titles.map((t) => JSON.stringify(t)).join("; ")}; footer: ${src}`;
+    } finally {
+      win.open = realOpen;
+    }
+  }
+
+  return { A: scenarioA, B: scenarioB, C: scenarioC, D: scenarioD, F: scenarioF };
 }
 
 /* ============================================================================
@@ -658,6 +788,7 @@ async function main() {
     addRow("B", "metadata back-fill", "SKIP", "needs __animeTest (hook missing)");
     addRow("C", "adult title searchable", "SKIP", "needs __animeTest (hook missing)");
     addRow("D", "relevance ranking", "SKIP", "needs __animeTest (hook missing)");
+    addRow("F", "watch chooser → top five on EverythingMoe", "SKIP", "needs __animeTest (hook missing)");
     printTable();
     printFixtureReport();
     console.log(C.y + "\nRe-run this suite once the hook lands — fixtures are already captured." + C.x);
@@ -691,8 +822,9 @@ async function main() {
     B: "metadata back-fill",
     C: "adult title searchable",
     D: "relevance ranking",
+    F: "watch chooser → top five on EverythingMoe",
   };
-  for (const id of ["A", "B", "C", "D"]) {
+  for (const id of ["A", "B", "C", "D", "F"]) {
     try {
       const detail = await withTimeout(scenarios[id](), SCENARIO_TIMEOUT, `scenario ${id}`);
       addRow(id, LABELS[id], "PASS", detail || "ok");

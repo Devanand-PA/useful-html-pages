@@ -27,6 +27,7 @@ Everything is driven through the app's own test hook, `window.__animeTest`:
 | C | adult title searchable | `doSearch("redo of healer")` then `searchCandidates()` contains a title matching `/redo of healer/i` |
 | D | relevance ranking | that same title is within the **first 5** candidates (it used to be hidden behind Kitsu's fuzzy text matches) — the app must merge providers and rank by relevance |
 | E | app did not throw | no `window.onerror`, no unhandled rejection (page or Node level), no jsdom "uncaught" error while the scenarios run |
+| F | watch chooser → EverythingMoe top 5 | every rendered card kind (`.item`, `.result-card`, `.rec-card`) carries **exactly one** `.watch-btn`; clicking it opens the `#watchMenu` chooser instead of navigating; the chooser lists **exactly five** uniquely-named sites in ranked order with the card's title as its headline; picking the **#1** site (pinned: Re:Anime → `https://reanime.to/search?q=<url-encoded title of that very card>`) opens it in `_blank`; a top-5 site with no shareable search route (currently Gotaku) opens its homepage instead; and `refreshWatchSites()` upgrades the list to `live` from the `everythingmoe-anime.html` fixture. If the ranking or a route changes, update `WATCH_PREFIX`/`WATCH_SITE` here together with `WATCH_REGISTRY`/`WATCH_BUNDLED` in the app and re-capture the fixture |
 
 Results print as a compact PASS/FAIL table. Exit codes:
 
@@ -61,6 +62,7 @@ The script extracts the app's seed / fallback-pool titles out of
 | `kitsu-categories-*.json` | `filter[categories]=<slug>&sort=-averageRating` | recommendation fallback discovery; captured for every slug the profile can plausibly pick (`isekai`, `adventure`, `fantasy`, `high-fantasy`, `dark-fantasy`, `supernatural`, `demon`, `action`, `romance`, `comedy`, `swordplay`) |
 | `tvmaze-ping.json` / `tvmaze-search-redo-of-healer.json` | `shows/1`, `search/shows?q=` | |
 | `ann-ping.xml` / `ann-title-redo-of-healer.xml` | `api.xml?title=~...` | raw XML, the app parses it with `DOMParser` |
+| `everythingmoe-anime.html` | `everythingmoe.com/section/anime` | ranked anime-site toplist (HTML) the ▶ watch-site chooser refreshes from; pins the current top five — re-capture it together with the app's `WATCH_BUNDLED` when EverythingMoe's ranking changes |
 | `jikan-ping.json` + `.status` | `api.jikan.moe/v4/anime/1` | unreachable from this environment (connection timeout) — the 5xx replay models the provider being down |
 | `titles/kitsu--<slug>.json` | `filter[text]=<title>` | one per seed/fallback title, for back-fill + candidate hydration |
 | `titles/tvmaze--<slug>.json` | `search/shows?q=<title>` | same |
@@ -85,6 +87,7 @@ parameter still resolves to the same fixture:
 | | `/shows/<id>` | `tvmaze-ping.json` |
 | `*animenewsnetwork*` | has `title` | `titles/ann--<slug>.xml` |
 | | has `id` | `titles/ann-id--<id>.xml` |
+| `*everythingmoe*` | any | `everythingmoe-anime.html` (the ▶ chooser's "live" refresh; the CORS relays the app tries after the direct fetch surface here as unmatched hosts when the fixture is missing) |
 
 Anything unmatched returns an empty, provider-shaped payload and is listed under
 **unmatched requests** in the report. If the app starts calling a new endpoint, the run
@@ -102,8 +105,10 @@ does not silently skew — the request shows up there, and you extend the captur
 The suite also widens `__animeTest.apiConfig.searchDeadline` to 60 s when the hook
 exposes it, so the app's provider-search deadline can never beat the instant fixture
 replay. Hook surface the suite relies on beyond the base contract: `recSource()`
-(scenario A), `apiConfig` (deadline knob) and `pickBestHit()` (used only in failure
-diagnostics). All of it is optional except the base contract in `smoke.mjs`.
+(scenario A), `apiConfig` (deadline knob), `pickBestHit()` (used only in failure
+diagnostics), `watchSites()` (scenario F's ranked list) and `refreshWatchSites()`
+(scenario F's live-refresh check). All of it is optional except the base contract
+in `smoke.mjs`.
 | `SMOKE_APP=<path>` | `../anime-custom-lists.html` | boot another copy of the page (used to self-test the "hook missing" / "app threw" diagnostics) |
 
 ## Intentional limitations
