@@ -28,6 +28,9 @@ Everything is driven through the app's own test hook, `window.__animeTest`:
 | D | relevance ranking | that same title is within the **first 5** candidates (it used to be hidden behind Kitsu's fuzzy text matches) — the app must merge providers and rank by relevance |
 | E | app did not throw | no `window.onerror`, no unhandled rejection (page or Node level), no jsdom "uncaught" error while the scenarios run |
 | F | watch chooser → EverythingMoe top 5 | every rendered card kind (`.item`, `.result-card`, `.rec-card`) carries **exactly one** `.watch-btn`; clicking it opens the `#watchMenu` chooser instead of navigating; the chooser lists **exactly five** uniquely-named sites in ranked order with the card's title as its headline; picking the **#1** site (pinned: Re:Anime → `https://reanime.to/search?q=<url-encoded title of that very card>`) opens it in `_blank`; a top-5 site with no shareable search route (currently Gotaku) opens its homepage instead; and `refreshWatchSites()` upgrades the list to `live` from the `everythingmoe-anime.html` fixture. If the ranking or a route changes, update `WATCH_PREFIX`/`WATCH_SITE` here together with `WATCH_REGISTRY`/`WATCH_BUNDLED` in the app and re-capture the fixture |
+| G | tier weights follow position | `tierWeights(list)` is **strictly decreasing** top-to-bottom for the seeded ladder list **and** after a custom-named tier is unshifted on top (the "God tier" case); the unranked row (`""`) weighs less than the bottom tier; the scenario leaves the list untouched |
+| H | duplicates: same show, other name | clicking the ⧉ overlay on the first `.rec-card` opens the `#dupeModal` picker; choosing a tracked entry records exactly one `{title, of}` pair, hides that card from the batch immediately, shows the `#dupePanel` with the pair, makes `buildSeenIndex().looksTracked` block it, and `dupeGuard()` counts the second name of the pair as already-counted; clicking ✕ in the panel restores the card in the batch and hides the empty panel |
+| I | tier labels & notes edit in place | dbl-clicking a tier label swaps `.tl-text` for a `.tier-label-edit` input **inside the label** — Esc cancels, Enter commits and the repainted row shows the new name; dbl-clicking an `.item` card opens its tooltip with a focused `textarea.tt-notes-edit`, with `.tt-notes` verified to sit **below `.tt-syn`** — Enter saves (entry updated, 📝 dot on the card, editor closes), Esc cancels, clicking the notes reopens the editor, and saving blank text clears the note and the dot. No `prompt()` is used anywhere in the flow |
 
 Results print as a compact PASS/FAIL table. Exit codes:
 
@@ -106,9 +109,10 @@ The suite also widens `__animeTest.apiConfig.searchDeadline` to 60 s when the ho
 exposes it, so the app's provider-search deadline can never beat the instant fixture
 replay. Hook surface the suite relies on beyond the base contract: `recSource()`
 (scenario A), `apiConfig` (deadline knob), `pickBestHit()` (used only in failure
-diagnostics), `watchSites()` (scenario F's ranked list) and `refreshWatchSites()`
-(scenario F's live-refresh check). All of it is optional except the base contract
-in `smoke.mjs`.
+diagnostics), `watchSites()` (scenario F's ranked list), `refreshWatchSites()`
+(scenario F's live-refresh check), `tierWeights()` (scenario G), and `dupes()`,
+`buildSeenIndex()` plus `dupeGuard()` (scenario H). All of it is optional except
+the base contract in `smoke.mjs`.
 | `SMOKE_APP=<path>` | `../anime-custom-lists.html` | boot another copy of the page (used to self-test the "hook missing" / "app threw" diagnostics) |
 
 ## Intentional limitations

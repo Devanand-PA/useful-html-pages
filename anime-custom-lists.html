@@ -133,10 +133,23 @@
   /* tier rows */
   .tier-row { display: flex; align-items: stretch; margin-bottom: 10px; }
   .tier-label {
-    flex: 0 0 78px; display: flex; align-items: center; justify-content: center;
+    flex: 0 0 auto; min-width: 78px; max-width: 230px; padding: 0 16px;
+    display: flex; align-items: center; justify-content: center;
     font-weight: 900; font-size: 1.15rem; color: #16121f; border-radius: 10px 0 0 10px;
     cursor: pointer; position: relative; user-select: none;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  .tier-label:active { cursor: grabbing; }
+  .tier-label .tl-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* the inline rename box that replaces the label text on double-click */
+  .tier-label .tier-label-edit {
+    background: transparent; border: 1px solid rgba(0,0,0,.55); border-radius: 6px;
+    color: inherit; font: inherit; font-weight: 900; text-align: center;
+    padding: 1px 4px; outline: none; min-width: 36px; max-width: 100%;
+  }
+  /* insertion line shown while a tier label is dragged over another tier row */
+  .tier-row.ins-above { box-shadow: 0 -3px 0 0 var(--accent); }
+  .tier-row.ins-below { box-shadow: 0 3px 0 0 var(--accent); }
   .tier-label .tdel {
     position: absolute; top: 4px; right: 6px; font-size: 10px; color: #16121f;
     opacity: 0; cursor: pointer; font-weight: 900;
@@ -244,11 +257,12 @@
   }
   .watch-menu .wm-refresh:hover { border-color: var(--accent); color: var(--text); }
 
-  /* tooltip */
+  /* tooltip — follows the card, not the cursor, so the user can move onto it and
+     actually click "Open page" or scroll the synopsis */
   .tooltip {
     position: fixed; z-index: 1000; width: 330px; background: #1d1a2b;
     border: 1px solid var(--accent); border-radius: 12px; padding: 12px;
-    box-shadow: 0 10px 30px rgba(0,0,0,.55); pointer-events: none; display: none;
+    box-shadow: 0 10px 30px rgba(0,0,0,.55); pointer-events: auto; display: none;
     font-size: .8rem; line-height: 1.45;
   }
   .tooltip .tt-head { display: flex; gap: 10px; }
@@ -265,6 +279,25 @@
   .tooltip .tt-hint {
     margin-top: 9px; padding-top: 7px; border-top: 1px solid var(--border);
     color: var(--muted); font-size: .64rem;
+  }
+  /* the entry's own notes, below the synopsis — click to edit them in place */
+  .tooltip .tt-notes { margin-top: 9px; }
+  .tooltip .tt-notes-head {
+    display: flex; align-items: center; gap: 5px; font-size: .62rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .08em; font-weight: 800; margin-bottom: 4px;
+  }
+  .tooltip .tt-notes-body {
+    color: #cfcbe2; font-size: .76rem; line-height: 1.45; white-space: pre-wrap;
+    word-break: break-word; border: 1px dashed transparent; border-radius: 7px;
+    padding: 5px 7px; cursor: text;
+  }
+  .tooltip .tt-notes-body:hover { border-color: var(--border); background: rgba(255,255,255,.03); }
+  .tooltip .tt-notes-body.empty { color: var(--muted); font-style: italic; }
+  .tooltip textarea.tt-notes-edit {
+    width: 100%; box-sizing: border-box; min-height: 60px; resize: vertical;
+    background: var(--panel2); color: var(--text); border: 1px solid var(--accent);
+    border-radius: 7px; padding: 6px 8px; font: inherit; font-size: .76rem;
+    line-height: 1.45; outline: none; display: block;
   }
 
   /* modal */
@@ -299,6 +332,24 @@
   .save-item .si-actions button:hover { border-color: var(--accent); }
   .save-item .si-actions button.del:hover { border-color: #ff6b81; color: #ff6b81; }
   .empty-note { color: var(--muted); font-size: .85rem; text-align: center; padding: 24px 0; }
+
+  /* "mark as duplicate" picker modal */
+  .dupe-intro { font-size: .8rem; color: var(--muted); line-height: 1.5; margin-bottom: 10px; }
+  .dupe-intro b { color: var(--text); }
+  #dupeFilter {
+    width: 100%; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    padding: 8px 10px; border-radius: 8px; outline: none; font-size: .85rem; margin-bottom: 10px;
+  }
+  #dupeFilter:focus { border-color: var(--accent); }
+  #dupePicks { max-height: 300px; overflow-y: auto; }
+  .dupe-pick {
+    display: block; width: 100%; text-align: left; background: var(--panel2);
+    border: 1px solid var(--border); color: var(--text); border-radius: 8px;
+    padding: 8px 12px; cursor: pointer; font-size: .78rem; margin-bottom: 6px;
+    line-height: 1.35;
+  }
+  .dupe-pick:hover { border-color: var(--accent); }
+  .dupe-pick small { display: block; color: var(--muted); font-size: .63rem; margin-top: 2px; }
 
   /* =======================================================
      RIGHT SIDEBAR — taste profile + recommendations
@@ -406,6 +457,31 @@
   }
   .rec-actions button:hover { background: var(--accent); color: #1b1826; }
   .rec-actions button.added { background: var(--good); border-color: var(--good); color: #08240f; }
+
+  /* "same show, other name" marker on a recommendation (⧉ overlay, top-right) */
+  .rec-card .dupe-btn {
+    position: absolute; top: 7px; right: 7px; width: 22px; height: 22px; border: 0;
+    border-radius: 50%; background: rgba(0,0,0,.45); color: #ffd166; font-size: 11px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    visibility: hidden; padding: 0; line-height: 1;
+  }
+  .rec-card:hover .dupe-btn { visibility: visible; }
+  .rec-card .dupe-btn:hover { background: rgba(0,0,0,.7); }
+
+  /* duplicates panel (right sidebar): one row per marked pair */
+  .dupe-row {
+    display: flex; align-items: flex-start; gap: 6px; font-size: .68rem;
+    color: var(--muted); line-height: 1.4; padding: 5px 7px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+    margin-bottom: 6px;
+  }
+  .dupe-row b { color: var(--text); font-weight: 600; }
+  .dupe-row .d-of { color: var(--accent); }
+  .dupe-row .dupe-x {
+    margin-left: auto; flex: 0 0 auto; background: none; border: 0; color: #ff6b81;
+    cursor: pointer; font-weight: 900; padding: 0 2px; font-size: .78rem;
+  }
+  .dupe-row .dupe-x:hover { color: #ff9aa8; }
 
   .rec-note { font-size: .68rem; color: var(--muted); line-height: 1.5; margin-top: 8px; }
   .rec-skel { height: 104px; border-radius: 10px; background: var(--panel2); overflow: hidden; position: relative; }
@@ -602,8 +678,16 @@
       Drag a card onto <b style="color:var(--accent)">any tab above</b> to copy it into that
       list — the original stays put, tier list ⇄ watch list.<br>
       Dragging near a screen edge <b style="color:var(--accent)">auto-scrolls</b>.<br>
-      Hover = synopsis &amp; score · dbl-click card = notes · dbl-click tier label = rename
+      Hover = synopsis &amp; score, with your notes right below it (the tooltip
+      stays put — click “Open page”, or click the notes to edit them in place)
+      · dbl-click card = jump straight into its notes
+      · dbl-click tier label = rename it right there
       · ▶ on a cover = pick one of EverythingMoe’s top five anime sites to search on.<br>
+      Drag a tier’s <b style="color:var(--accent)">label</b> to re-order tiers — drop it
+      above or below another tier. Top tiers weigh more in your recommendations.<br>
+      ⧉ on a recommendation = <b style="color:var(--accent)">same show, other name</b> —
+      pick what it duplicates and it stops being recommended (manage them in the
+      ⧉ Duplicates panel).<br>
       <b style="color:var(--accent)">✎</b> on a tab or list header renames that list.<br>
       <b style="color:var(--accent)">Right panel</b> builds recommendations from
       your tiers + watch list and scores.
@@ -641,6 +725,16 @@
       <div id="recMore"></div>
       <div class="rec-note" id="recNote"></div>
     </div>
+
+    <div class="side-panel" id="dupePanel" style="display:none">
+      <div class="side-head" style="margin-bottom:10px">
+        <h2>⧉ Duplicates</h2>
+        <div class="spacer"></div>
+        <button class="mini-btn" id="dupeAddBtn"
+                title="Mark a title as the same show as something you track — it stops being recommended">+ Add</button>
+      </div>
+      <div class="rec-note" id="dupeList" style="margin-top:0"></div>
+    </div>
   </aside>
 </div>
 
@@ -652,6 +746,18 @@
     </div>
     <button id="newSlotBtn" style="width:100%;margin-bottom:12px;padding:8px;background:var(--panel2);border:1px dashed var(--border);color:var(--text);border-radius:8px;cursor:pointer">＋ Save current as new slot</button>
     <div class="save-list" id="saveList"></div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="dupeModal" style="display:none">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>⧉ Mark as duplicate</h3>
+      <button class="modal-close" id="closeDupeModal">✕</button>
+    </div>
+    <div class="dupe-intro" id="dupeIntro"></div>
+    <input id="dupeFilter" placeholder="Filter your tracked anime…" autocomplete="off">
+    <div id="dupePicks"></div>
   </div>
 </div>
 
@@ -1237,10 +1343,63 @@ function loadPrefs() {
 }
 const prefs = Object.assign(
   { recOtherSeasons: false,   // OFF: one entry per franchise, no sequels
-    searchOtherSeasons: true  // ON: search shows whatever the API returns
+    searchOtherSeasons: true, // ON: search shows whatever the API returns
+    recDupes: null            // [{title, of, at}] — "same show under another name"
   }, loadPrefs());
 function savePrefs() {
   try { localStorage.setItem(PREF_KEY, JSON.stringify(prefs)); } catch (e) {}
+}
+
+/* ==================== DUPLICATES ("same show, other name") ====================
+   Providers list one anime under wildly different names — AniList returns
+   "Yahari Ore no Seishun Love Come wa Machigatteiru. Kan: Dakara, Shishunki wa
+   Owarazu ni, Seishun wa Tsuzuiteiku" while TVmaze calls the same show "My teen
+   romantic comedy snafu".  The seen-index cannot know they are one show, so the
+   recommendation keeps coming back.  Marking a recommendation as a duplicate of
+   a tracked entry fixes that permanently:
+     * it is excluded from every future recommendation batch,
+     * it disappears from the current batch instantly,
+     * and if BOTH sides of the pair are ever tracked, the taste model still
+       counts that franchise only once (no double weight).
+   The pairs live in prefs (so they persist) and are managed in the
+   "⧉ Duplicates" panel, where they can be added and removed again. */
+function dupeList() {
+  if (!Array.isArray(prefs.recDupes)) prefs.recDupes = [];
+  return prefs.recDupes;
+}
+const isDupeTitle = title => {
+  const n = normTitle(title);
+  return !!n && dupeList().some(d => normTitle(d.title) === n);
+};
+function markDupe(title, of) {
+  const a = normTitle(title), b = normTitle(of);
+  if (!a || !b || a === b) return false;
+  if (dupeList().some(d => normTitle(d.title) === a)) return false;   // already marked
+  dupeList().push({ title, of, at: Date.now() });
+  savePrefs();
+  return true;
+}
+function removeDupe(i) { dupeList().splice(i, 1); savePrefs(); }
+/* Per-pass guard: feed it titles in order; it answers true when a title is the
+   *other side* of a duplicate pair that was already counted this pass — so a
+   franchise tracked under both names still weighs in exactly once. */
+function newDupeGuard() {
+  const pairs = new Map();                     // normTitle -> Set(partner normTitles)
+  for (const d of dupeList()) {
+    const a = normTitle(d.title), b = normTitle(d.of);
+    if (!a || !b || a === b) continue;
+    if (!pairs.has(a)) pairs.set(a, new Set());
+    if (!pairs.has(b)) pairs.set(b, new Set());
+    pairs.get(a).add(b); pairs.get(b).add(a);
+  }
+  const counted = new Set();
+  return title => {
+    const n = normTitle(title);
+    if (n && pairs.has(n)) for (const p of pairs.get(n))
+      if (counted.has(p)) { counted.add(n); return true; }
+    if (n) counted.add(n);
+    return false;
+  };
 }
 
 const ISEKAI_SEED = {
@@ -1575,7 +1734,7 @@ function renderTierList(list) {
   list.tiers.forEach((t, i) => {
     const row = makeTierRow(list, t, "");
     row.querySelector(".tier-label").style.background = TIER_COLORS[i % TIER_COLORS.length];
-    if (t.label === "—" || !t.label) row.querySelector(".tier-label").textContent = "—";
+    if (t.label === "—" || !t.label) row.querySelector(".tl-text").textContent = "—";
     div.appendChild(row);
   });
   const addTierBtn = document.createElement("div");
@@ -1626,9 +1785,28 @@ function makeTierRow(list, tier, extraCls) {
   row.className = "tier-row " + extraCls;
   const label = document.createElement("div");
   label.className = "tier-label";
-  label.textContent = tier.label;
+  /* the editable text lives in its own span, so the inline rename input can
+     replace exactly it and the ✕ button keeps its place */
+  const txt = document.createElement("span");
+  txt.className = "tl-text";
+  txt.textContent = tier.label;
+  label.appendChild(txt);
   if (!extraCls) {
-    label.title = "Double-click to rename · ✕ removes tier";
+    label.title = "Double-click to rename in place · drag to reorder · ✕ removes tier";
+    /* Dragging the LABEL moves the whole tier row — this is how a "God" tier gets
+       pulled to the very top.  The payload mirrors the card drags ({type: …}) so
+       the shared drop machinery can tell them apart, and `tierDrag` marks the drag
+       live for the insertion indicators (getData() is sealed until the drop). */
+    label.draggable = true;
+    label.addEventListener("dragstart", ev => {
+      try {
+        ev.dataTransfer.setData("text/plain",
+          JSON.stringify({ type: "tier", listId: list.id, tierId: tier.id }));
+        ev.dataTransfer.effectAllowed = "move";
+      } catch (e) { /* jsdom/proxy: drag goes on without the payload */ }
+      tierDrag = { listId: list.id, tierId: tier.id };
+    });
+    label.addEventListener("dragend", () => { tierDrag = null; clearTierMarks(); });
     const del = document.createElement("span");
     del.className = "tdel"; del.textContent = "✕";
     del.addEventListener("click", ev => {
@@ -1640,11 +1818,46 @@ function makeTierRow(list, tier, extraCls) {
       }
     });
     label.appendChild(del);
-    label.addEventListener("dblclick", () => {
-      const n = prompt("Rename tier:", tier.label);
-      if (n && n.trim()) { tier.label = n.trim(); render(); }
+    label.addEventListener("dblclick", ev => {
+      if (ev.target.closest(".tdel")) return;         // the ✕ is not a rename
+      editTierLabelInPlace(label, txt, tier);
     });
   }
+  /* Insertion targets while a tier from this list is dragged over this row: the
+     line sits above or below the row depending on which half the pointer is in. */
+  row.addEventListener("dragover", ev => {
+    if (!tierDrag || tierDrag.listId !== list.id) return;
+    if (list.tiers.findIndex(t => t.id === tier.id) < 0) return;   // not a real tier row
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "move";
+    const r = row.getBoundingClientRect();
+    const before = ev.clientY < r.top + r.height / 2;
+    clearTierMarks();
+    row.classList.add(before ? "ins-above" : "ins-below");
+  });
+  row.addEventListener("drop", ev => {
+    if (!tierDrag || tierDrag.listId !== list.id) return;
+    ev.preventDefault();
+    ev.stopPropagation();               // the shared card-drop handler must not run
+    clearTierMarks();
+    let payload = null;
+    try { payload = JSON.parse(ev.dataTransfer.getData("text/plain")); } catch (e) {}
+    const target = list.tiers.findIndex(t => t.id === tier.id);
+    if (!payload || payload.type !== "tier" || payload.tierId === tier.id || target < 0) {
+      tierDrag = null;
+      return;
+    }
+    const from = list.tiers.findIndex(t => t.id === payload.tierId);
+    if (from < 0) { tierDrag = null; return; }
+    const r = row.getBoundingClientRect();
+    const before = ev.clientY < r.top + r.height / 2;
+    const [moved] = list.tiers.splice(from, 1);
+    let at = list.tiers.findIndex(t => t.id === tier.id);
+    if (!before) at += 1;
+    list.tiers.splice(at, 0, moved);
+    tierDrag = null;
+    render();                           // repainted rows clear the indicator too
+  });
   const zone = document.createElement("div");
   zone.className = "tier-drop";
   zone.dataset.listId = list.id;
@@ -1653,6 +1866,38 @@ function makeTierRow(list, tier, extraCls) {
     .forEach(e => zone.appendChild(makeCard(list, e)));
   row.appendChild(label); row.appendChild(zone);
   return row;
+}
+
+/* Rename a tier right inside its label — no popup.  The text span is swapped
+   for an input; Enter or a click away commits (Esc cancels, empty cancels).
+   Dragging is disabled for the duration so the input can be selected freely. */
+function editTierLabelInPlace(label, txt, tier) {
+  if (label.querySelector(".tier-label-edit")) return;      // already editing
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "tier-label-edit";
+  input.value = tier.label;
+  input.size = Math.max(4, Math.min(24, tier.label.length + 2));
+  label.draggable = false;
+  txt.replaceWith(input);
+  try { input.focus(); input.select(); } catch (e) { /* jsdom */ }
+  let done = false;
+  const finish = commit => {
+    if (done) return;
+    done = true;
+    const v = input.value.replace(/\s+/g, " ").trim();
+    input.replaceWith(txt);
+    label.draggable = true;
+    if (commit && v && v !== tier.label) { tier.label = v; render(); }
+  };
+  input.addEventListener("keydown", ev => {
+    ev.stopPropagation();
+    if (ev.key === "Enter") { ev.preventDefault(); finish(true); }
+    else if (ev.key === "Escape") { ev.preventDefault(); finish(false); }
+  });
+  input.addEventListener("blur", () => finish(true));
+  for (const t of ["click", "mousedown", "dblclick"])
+    input.addEventListener(t, ev => ev.stopPropagation());
 }
 
 /* ---- card ---- */
@@ -1670,7 +1915,7 @@ function makeCard(list, e) {
     '<div class="it-title">' + escapeHtml(e.title) + "</div>" +
     (e.score ? '<div class="it-score">★ ' + escapeHtml(e.score) + "</div>"
              : '<div class="it-score na">score pending…</div>') +
-    (e.notes ? '<div class="notes-dot">📝</div>' : "");
+    (e.notes ? '<div class="notes-dot" title="Has notes — hover to read/edit them below the synopsis">📝</div>' : "");
   return div;
 }
 
@@ -1685,6 +1930,28 @@ function makeCard(list, e) {
 const TIER_WEIGHT = { "SS+":1,"SS":1,"S+":.95,"S":.85,"A+":.78,"A":.7,"B+":.6,"B":.5,
                       "C+":.4,"C":.3,"D+":.22,"D":.15,"E":.1,"F":.08 };
 const WATCH_WEIGHT = .45;
+/* ---- tier weight = how strongly an entry drives recommendations ----
+   The classic ladder names (SS+, S, A, …) keep their documented strengths.  Any
+   custom label ("God", "Out of ideas", …) is graded purely by POSITION: the top
+   tier of the list counts most and every tier below counts strictly less, so
+   dragging a tier higher instantly makes it matter more.  Ladder names are also
+   capped by their positional grade, and a final pass enforces strict decrease
+   top-to-bottom — whatever the list is called, a lower tier can never weigh
+   more than a tier above it.  The unranked row ("" id) weighs least of all. */
+function tierWeightMap(list) {
+  const n = list.tiers.length;
+  const w = list.tiers.map((t, i) => {
+    const label = (t.label || "").toUpperCase().trim();
+    const pos = n <= 1 ? 1 : 1 - .92 * (i / (n - 1));       // top = 1, bottom = .08
+    return Object.prototype.hasOwnProperty.call(TIER_WEIGHT, label)
+      ? Math.min(TIER_WEIGHT[label], pos) : pos;
+  });
+  for (let i = 1; i < n; i++) w[i] = Math.min(w[i], Math.max(.05, w[i - 1] - .02));
+  const map = new Map();
+  list.tiers.forEach((t, i) => map.set(t.id, w[i]));
+  map.set("", Math.min(.15, (n ? w[n - 1] : .4) * .5));      // unranked < every tier
+  return map;
+}
 
 /* Keyword themes -> real AniList genres / tags.  No /g flag: .test() must be stateless. */
 const THEME_RULES = [
@@ -1904,14 +2171,15 @@ function buildTasteProfile() {
   const genres = new Map(), tags = new Map(), seeds = [];
   const stats = { tracked: 0, ranked: 0, unranked: 0, watchQ: 0, lists: 0,
                   scores: [], years: [], eps: [] };
+  const dupeGuard = newDupeGuard();
   for (const list of state.lists) {
     if (!sourceEnabled(list)) continue;
     stats.lists++;
+    const tw = list.kind === "tier" ? tierWeightMap(list) : null;
     for (const e of list.entries) {
-      const label = list.kind === "tier"
-        ? (list.tiers.find(t => t.id === e.tierId)?.label || "") : "";
+      if (dupeGuard(e.title)) continue;      // same show as an already-counted entry
       let w = list.kind === "tier"
-        ? (TIER_WEIGHT[label.toUpperCase().trim()] ?? .4)
+        ? (tw?.get(e.tierId || "") ?? .4)
         : WATCH_WEIGHT;
       // a high score the user recorded is itself a taste signal
       if (e.score) w *= 1 + Math.max(0, (Number(e.score) - 70)) / 200;
@@ -2113,6 +2381,12 @@ function buildSeenIndex() {
   const seenIds = new Set();
   for (const l of state.lists) for (const e of l.entries)
     if (e.source === "anilist" && e.srcId) seenIds.add(Number(e.srcId));
+  /* Marked duplicates count as "already seen" under their other name — this is
+     what keeps a renamed re-release out of every future recommendation batch. */
+  for (const d of dupeList()) {
+    const n = normTitle(d.title);
+    if (n) seen.add(n);
+  }
   function looksTracked(title) {
     const n = normTitle(title);
     if (!n || seen.has(n)) return true;
@@ -2388,11 +2662,13 @@ async function anilistRecs(profile_, recSeen, onErr) {
 
   /* enrich the profile with real genres/tags from AniList for resolved titles */
   const seedWeights = new Map();     // anilist id -> weight
+  const dupeGuard = newDupeGuard();
   for (const l of state.lists) {
     if (!sourceEnabled(l)) continue;
+    const tw = l.kind === "tier" ? tierWeightMap(l) : null;
     for (const e of l.entries) {
-      const label = l.kind === "tier" ? (l.tiers.find(t => t.id === e.tierId)?.label || "") : "";
-      let w = l.kind === "tier" ? (TIER_WEIGHT[label.toUpperCase().trim()] ?? .4) : WATCH_WEIGHT;
+      if (dupeGuard(e.title)) continue;   // franchise already counted under its other name
+      let w = l.kind === "tier" ? (tw?.get(e.tierId || "") ?? .4) : WATCH_WEIGHT;
       if (e.score) w *= 1 + Math.max(0, (Number(e.score) - 70)) / 200;
       const m = (e.source === "anilist" && e.srcId)
         ? { id: Number(e.srcId), genres: [], tags: [] } : resolved.get(normTitle(e.title));
@@ -2602,10 +2878,13 @@ function renderTaste(enriched) {
 
 /* The candidate pool is filtered at render time: "other seasons" off collapses each
    franchise to a single entry, on leaves every season/sequel in.  Toggling it is
-   therefore instant and never costs a refetch. */
+   therefore instant and never costs a refetch.  Marked duplicates drop out the
+   same way, so the card vanishes the moment it is marked. */
 function visibleRecs() {
-  if (prefs.recOtherSeasons) return recCandidates;
-  return withoutOtherSeasons(dedupeByFranchise(recCandidates), r => r.title);
+  let pool = recCandidates;
+  if (dupeList().length) pool = pool.filter(r => !isDupeTitle(r.title));
+  if (prefs.recOtherSeasons) return pool;
+  return withoutOtherSeasons(dedupeByFranchise(pool), r => r.title);
 }
 
 /* The built-in fallback pool is bigger than one page, so "load more" must stay
@@ -2646,6 +2925,8 @@ function renderRecs() {
                  (recNeedsMeta(r) && PROVIDERS.some(providerUsable) ? "loading…" : "no image") +
                  "</div>") +
       watchBtnHtml(true) +
+      '<button class="dupe-btn" type="button"' +
+        ' title="Same show as something you track? Mark it as a duplicate — it stops being recommended">⧉</button>' +
       '<div class="rec-body">' +
         '<div class="rec-title">' + escapeHtml(r.title) + "</div>" +
         '<div class="rec-meta"><span class="rec-score">' +
@@ -2670,6 +2951,10 @@ function renderRecs() {
       addCandidateToWatch(r);
       ev.target.textContent = "✓ added"; ev.target.classList.add("added");
       setTimeout(() => { ev.target.textContent = "+ Watch list"; ev.target.classList.remove("added"); }, 1200);
+    });
+    div.querySelector(".dupe-btn").addEventListener("click", ev => {
+      ev.stopPropagation();
+      openDupeModal(r.title);
     });
     div.querySelector('[data-act="top"]').addEventListener("click", ev => {
       ev.stopPropagation();
@@ -2846,6 +3131,13 @@ document.getElementById("recRefresh").addEventListener("click", () => {
 });
 
 /* ==================== DRAG & DROP ==================== */
+/* A tier-label drag in progress (getData() is sealed until the actual drop, so
+   the drag source also records itself here for the insertion indicators). */
+let tierDrag = null;
+function clearTierMarks() {
+  document.querySelectorAll(".tier-row.ins-above, .tier-row.ins-below")
+    .forEach(r => r.classList.remove("ins-above", "ins-below"));
+}
 document.addEventListener("dragstart", ev => {
   const card = ev.target.closest(".item");
   const rc = ev.target.closest(".result-card, .rec-card");
@@ -2863,6 +3155,7 @@ const DROP_ZONE_SEL = ".tier-drop, .drop-zone";
    moves it into that list — tier list <-> watch list — without opening it first. */
 const TAB_SEL = ".tab[data-list-id]";
 document.addEventListener("dragover", ev => {
+  if (tierDrag) return;                 // reordering tiers: only the row handles it
   const tab = ev.target.closest?.(TAB_SEL);
   if (tab) {
     ev.preventDefault();
@@ -2882,6 +3175,7 @@ document.addEventListener("dragleave", ev => {
   }
 });
 document.addEventListener("drop", ev => {
+  if (tierDrag) return;                 // tier reorders are handled by the rows
   const tab = ev.target.closest?.(TAB_SEL);
   if (tab) {
     ev.preventDefault();
@@ -2990,14 +3284,22 @@ document.addEventListener("click", ev => {
   list.entries = list.entries.filter(x => x.id !== card.dataset.entryId);
   render();
 });
+/* Double-clicking a card = edit its notes, in place: the tooltip opens anchored
+   to the card with the notes editor focused (they sit right below the synopsis).
+   The old prompt() popup is gone. */
 document.addEventListener("dblclick", ev => {
   const card = ev.target.closest(".item");
   if (!card) return;
+  if (ev.target.closest(".remove-btn, .watch-btn")) return;
   const list = findList(card.dataset.listId);
   const e = list?.entries.find(x => x.id === card.dataset.entryId);
   if (!e) return;
-  const n = prompt('Notes for "' + e.title + '":', e.notes || "");
-  if (n !== null) { e.notes = n; render(); }
+  clearTimeout(ttTimer);
+  clearTimeout(ttHideTimer);
+  ttFor = card;
+  showTooltip(e, card);
+  placeTooltip(card);
+  startTooltipNotesEdit(e);
 });
 
 /* ==================== WATCH ONLINE (EverythingMoe top five) ====================
@@ -3193,14 +3495,37 @@ document.addEventListener("click", ev => {
   else showWatchMenu(ev.clientX, ev.clientY, title, key);
 });
 
-/* ==================== TOOLTIP ==================== */
-let ttTimer = null;
+/* ==================== TOOLTIP ====================
+   The tooltip anchors next to the card (not to the cursor) and stays open while
+   the pointer is over the card *or* the tooltip itself, so the synopsis can be
+   scrolled and "Open page →" actually clicked.  Leaving either starts a short
+   grace timer; re-entering cancels it.  Page scrolls (except inside the tooltip)
+   hide it — the anchor would drift otherwise. */
+let ttTimer = null, ttHideTimer = null, ttFor = null;
 function findCandidate(id) {
   if (!id) return undefined;
   return searchCandidates.find(x => x.searchId === id)
       || recCandidates.find(x => x.searchId === id);
 }
+function hideTooltip() {
+  clearTimeout(ttTimer); clearTimeout(ttHideTimer);
+  tooltip.style.display = "none"; ttFor = null;
+}
+function scheduleTooltipHide() {
+  clearTimeout(ttHideTimer);
+  ttHideTimer = setTimeout(hideTooltip, 300);
+}
+/* next to the card: right side if it fits, else the left; clamped to the window */
+function placeTooltip(el) {
+  const r = el.getBoundingClientRect();
+  const t = tooltip.getBoundingClientRect();
+  let x = r.right + 10;
+  if (x + t.width > innerWidth - 8) x = Math.max(8, r.left - t.width - 10);
+  const y = Math.min(Math.max(8, r.top), innerHeight - t.height - 8);
+  tooltip.style.left = x + "px"; tooltip.style.top = y + "px";
+}
 document.addEventListener("mouseover", ev => {
+  if (ev.target.closest?.("#tooltip")) { clearTimeout(ttHideTimer); return; }
   const el = ev.target.closest(".item, .result-card, .rec-card");
   if (!el) return;
   let d;
@@ -3211,27 +3536,121 @@ document.addEventListener("mouseover", ev => {
     d = findCandidate(el.dataset.searchId);
   }
   if (!d) return;
+  clearTimeout(ttHideTimer);              // (back) over a card: keep it open
+  if (ttFor === el && tooltip.style.display === "block") return;
   clearTimeout(ttTimer);
-  ttTimer = setTimeout(() => showTooltip(d), 300);
+  ttFor = el;
+  ttTimer = setTimeout(() => { showTooltip(d, el); placeTooltip(el); }, 300);
 });
 document.addEventListener("mouseout", ev => {
-  if (ev.target.closest?.(".item, .result-card, .rec-card")) { clearTimeout(ttTimer); tooltip.style.display = "none"; }
-});
-document.addEventListener("mousemove", ev => {
   if (tooltip.style.display !== "block") return;
-  const pad = 14;
-  let x = ev.clientX + pad, y = ev.clientY + pad;
-  const r = tooltip.getBoundingClientRect();
-  if (x + r.width > innerWidth - 8) x = ev.clientX - r.width - pad;
-  if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - pad;
-  tooltip.style.left = x + "px"; tooltip.style.top = y + "px";
+  const from = ev.target.closest?.(".item, .result-card, .rec-card, #tooltip");
+  if (from) scheduleTooltipHide();
+});
+/* capture phase: scroll events do not bubble, but capture still sees them all */
+document.addEventListener("scroll", ev => {
+  if (tooltip.style.display !== "block") return;
+  if (ev.target && tooltip.contains(ev.target)) return;   // reading the synopsis
+  hideTooltip();
+}, true);
+
+/* ==================== DUPLICATES UI ====================
+   The ⧉ on a recommendation opens this picker: choose which tracked entry it
+   duplicates, and it disappears from the recommendations for good.  The panel in
+   the right sidebar lists every marked pair; ✕ restores one — and since the
+   filter runs at render time, the title pops back into the current batch at once. */
+const dupeModal = document.getElementById("dupeModal");
+let dupePickingFor = null;                        // the title the picker was opened for
+function openDupeModal(title) {
+  dupePickingFor = title;
+  document.getElementById("dupeIntro").innerHTML =
+    "<b>" + escapeHtml(title) + "</b> is the same show as…" +
+    " <span style=\"opacity:.7\">— pick the entry it duplicates; it stops being recommended.</span>";
+  const filter = document.getElementById("dupeFilter");
+  filter.value = "";
+  renderDupePicks("");
+  filter.oninput = () => renderDupePicks(filter.value);
+  dupeModal.style.display = "flex";
+  try { filter.focus(); } catch (e) { /* jsdom */ }
+}
+function renderDupePicks(q) {
+  const box = document.getElementById("dupePicks");
+  box.innerHTML = "";
+  const needle = normTitle(q || "");
+  const rows = [];
+  for (const l of state.lists) {
+    if (needle && !l.entries.some(e => normTitle(e.title).includes(needle))) continue;
+    for (const e of l.entries) {
+      if (needle && !normTitle(e.title).includes(needle)) continue;
+      const tier = l.kind === "tier"
+        ? (l.tiers.find(t => t.id === e.tierId)?.label ? " · " + l.tiers.find(t => t.id === e.tierId).label : " · unranked")
+        : "";
+      rows.push({ title: e.title, sub: l.name + tier });
+    }
+  }
+  if (!rows.length) {
+    box.innerHTML = '<div class="empty-note">Nothing tracked matches that filter.</div>';
+    return;
+  }
+  rows.slice(0, 60).forEach(r => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "dupe-pick";
+    b.innerHTML = escapeHtml(r.title) + "<small>" + escapeHtml(r.sub) + "</small>";
+    b.addEventListener("click", () => {
+      if (!dupePickingFor) return;
+      const marked = markDupe(dupePickingFor, r.title);
+      closeDupeModal();
+      if (marked) {
+        recSeen = null;              // seen index must grow with the new dupe
+        renderRecs();                // the card vanishes from the current batch now
+        renderDupesPanel();
+      }
+    });
+    box.appendChild(b);
+  });
+}
+function closeDupeModal() { dupeModal.style.display = "none"; dupePickingFor = null; }
+document.getElementById("closeDupeModal").addEventListener("click", closeDupeModal);
+dupeModal.addEventListener("click", ev => { if (ev.target === dupeModal) closeDupeModal(); });
+
+/* the sidebar panel: one row per marked pair, ✕ to unmark */
+function renderDupesPanel() {
+  const panel = document.getElementById("dupePanel");
+  const box = document.getElementById("dupeList");
+  const dupes = dupeList();
+  panel.style.display = dupes.length ? "block" : "none";
+  box.innerHTML = "";
+  dupes.forEach((d, i) => {
+    const row = document.createElement("div");
+    row.className = "dupe-row";
+    row.title = "«" + d.title + "» and «" + d.of + "» count as one show";
+    row.innerHTML = "<b>" + escapeHtml(d.title) + "</b>" +
+      '<span class="d-of"> = same show as </span>' + escapeHtml(d.of);
+    const x = document.createElement("button");
+    x.className = "dupe-x"; x.type = "button"; x.textContent = "✕";
+    x.title = "Remove this duplicate marking — it can be recommended again";
+    x.addEventListener("click", () => {
+      removeDupe(i);
+      recSeen = null;                // rebuild the seen index without it
+      renderDupesPanel();
+      renderRecs();                  // …and it is back in the current batch instantly
+    });
+    row.appendChild(x);
+    box.appendChild(row);
+  });
+}
+document.getElementById("dupeAddBtn").addEventListener("click", () => {
+  const t = prompt("Which title should stop being recommended?\n" +
+    "(the duplicate — you will pick what it duplicates next)");
+  if (t && t.trim()) openDupeModal(t.trim());
 });
 const SRC_LABEL = { anilist: "AniList", kitsu: "Kitsu", mal: "MAL",
                     tvmaze: "TVmaze", ann: "ANN" };
 /* Some providers report scores out of 10 (MAL, TVmaze, ANN) and the rest out of 100
    (AniList, Kitsu). Displayed as-is, normalised to /100 only for filter comparisons. */
 const TEN_POINT = new Set(["mal", "tvmaze", "ann"]);
-function showTooltip(d) {
+function showTooltip(d, el) {
+  const isEntry = !!(el?.classList?.contains("item"));
   const bits = [
     d.score != null ? "<b>★ " + escapeHtml(String(d.score)) + "</b>" + (TEN_POINT.has(d.source) ? " /10" : " /100") : null,
     d.format || null,
@@ -3247,9 +3666,67 @@ function showTooltip(d) {
     '<div class="tt-syn">' +
       escapeHtml(d.synopsis || "No synopsis available (metadata may still be syncing).") +
     "</div>" +
+    (isEntry ? ttNotesHtml(d) : "") +
     (d.url ? '<a class="tt-link" href="' + escapeHtml(d.url) + '" target="_blank">Open page →</a>' : "") +
     '<div class="tt-hint">▶ on the cover = pick one of EverythingMoe\'s top five anime sites to search</div>';
   tooltip.style.display = "block";
+  if (isEntry) {
+    tooltip.querySelector(".tt-notes-body")
+      ?.addEventListener("click", () => startTooltipNotesEdit(d));
+  }
+}
+
+/* ==================== NOTES, IN PLACE ====================
+   Tracked entries carry their notes into the tooltip, right below the synopsis.
+   Clicking the notes (or double-clicking the card) swaps the text for a
+   textarea; Enter or clicking away commits, Esc cancels — no popup. */
+function ttNotesHtml(d) {
+  return '<div class="tt-notes">' +
+    '<div class="tt-notes-head">📝 notes</div>' +
+    '<div class="tt-notes-body' + (d.notes ? "" : " empty") + '"' +
+      ' title="Click to edit — Enter saves · Shift+Enter = new line · Esc cancels">' +
+      (d.notes ? escapeHtml(d.notes) : "click to add a note…") +
+    "</div></div>";
+}
+function ttNotesBodyEl(notes) {
+  const body = document.createElement("div");
+  body.className = "tt-notes-body" + (notes ? "" : " empty");
+  body.title = "Click to edit — Enter saves · Shift+Enter = new line · Esc cancels";
+  body.textContent = notes || "click to add a note…";
+  return body;
+}
+function startTooltipNotesEdit(d) {
+  const old = tooltip.querySelector(".tt-notes-body, .tt-notes-edit");
+  if (!old) return;                          // no notes section (not a tracked entry)
+  if (old.classList.contains("tt-notes-edit")) return;   // already editing
+  const ta = document.createElement("textarea");
+  ta.className = "tt-notes-edit";
+  ta.value = d.notes || "";
+  old.replaceWith(ta);
+  try { ta.focus(); const n = ta.value.length; ta.setSelectionRange(n, n); } catch (e) { /* jsdom */ }
+  let done = false;
+  const finish = commit => {
+    if (done) return;
+    done = true;
+    if (commit) {
+      const v = ta.value.trim() ? ta.value : null;
+      if ((v || null) !== (d.notes || null)) {
+        d.notes = v;                          // d IS the tracked entry object
+        render();                             // 📝 dot on the card + debounced save
+      }
+    }
+    const body = ttNotesBodyEl(d.notes || null);
+    body.addEventListener("click", () => startTooltipNotesEdit(d));
+    ta.replaceWith(body);
+  };
+  ta.addEventListener("keydown", ev => {
+    ev.stopPropagation();
+    if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); finish(true); }
+    else if (ev.key === "Escape") { ev.preventDefault(); finish(false); }
+  });
+  ta.addEventListener("blur", () => finish(true));
+  for (const t of ["click", "dblclick"])
+    ta.addEventListener(t, ev => ev.stopPropagation());
 }
 
 /* ==================== SEARCH FILTERS ==================== */
@@ -3849,6 +4326,8 @@ render();
 renderRecs();                 // shows the empty state until recommendations land
 updateSaveState();
 doSave();
+/* Marked duplicates (persisted in prefs) paint their sidebar panel at boot. */
+renderDupesPanel();
 /* Re-read EverythingMoe's ranked top five in the background. Never blocks the
    boot — the ▶ chooser serves the bundled/cache list until this lands. */
 refreshWatchSites().catch(() => {});
@@ -3897,6 +4376,12 @@ window.__animeTest = {
   relevance,
   watchSites: () => watchSites,
   refreshWatchSites,
+  tierWeights: tierWeightMap,
+  dupes: () => dupeList(),
+  markDupe,
+  removeDupe,
+  dupeGuard: newDupeGuard,
+  buildSeenIndex,
   PROVIDERS
 };
 </script>

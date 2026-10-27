@@ -26,6 +26,14 @@
  *   F  watch chooser                 every card's ▶ opens the site chooser; it lists
  *                                 EverythingMoe's ranked top five, and picking a site
  *                                 searches it for that card's title (currently Re:Anime)
+ *   G  tier weights                  a tier placed lower always weighs strictly less:
+ *                                 ladder + custom names, top/bottom/unranked checked
+ *   H  duplicates                    ⧉ on a rec marks it "same show, other name": the
+ *                                 card hides, the seen index blocks it, the profile
+ *                                 counts the franchise once, ✕ in the panel restores it
+ *   I  in-place editing              dbl-click a tier label renames it inside the label;
+ *                                 dbl-click a card opens its tooltip with the notes
+ *                                 editor focused below the synopsis (Enter/Esc/blank)
  *
  * Exit codes: 0 all pass · 1 something failed · 2 test hook missing (nothing run) ·
  *             3 harness/boot failure (app did not boot at all).
@@ -686,7 +694,201 @@ function makeScenarios({ win, doc, hook }) {
     }
   }
 
-  return { A: scenarioA, B: scenarioB, C: scenarioC, D: scenarioD, F: scenarioF };
+  /* G — tier weights follow position ---------------------------------------
+   * A tier placed lower must count strictly less than one above it, whatever
+   * the tiers are called: the seeded ladder list is strictly decreasing, a
+   * custom-named tier dragged to the top (the "God tier" case) outweighs the
+   * tier below it, and unranked weighs less than the bottom tier. */
+  async function scenarioG() {
+    if (typeof hook.tierWeights !== "function")
+      throw new Error("no tierWeights() on the hook");
+    const st = hook.state();
+    const tierList = (st.lists || []).find((l) => l.kind === "tier");
+    if (!tierList || !tierList.tiers?.length) throw new Error("no tier list with tiers found in state");
+
+    const checkMonotonic = (list, note) => {
+      const w = hook.tierWeights(list);
+      const ids = list.tiers.map((t) => t.id);
+      for (let i = 1; i < ids.length; i++) {
+        if (!(w.get(ids[i]) < w.get(ids[i - 1])))
+          throw new Error(`${note}: tier ${i} weighs ${w.get(ids[i])}, not less than the one above (${w.get(ids[i - 1])})`);
+      }
+      const bottom = w.get(ids[ids.length - 1]);
+      if (!(w.get("") < bottom))
+        throw new Error(`${note}: unranked (${w.get("")}) should weigh less than the bottom tier (${bottom})`);
+      return { w, ids, bottom };
+    };
+
+    const before = checkMonotonic(tierList, "seeded ladder");
+    const n0 = tierList.tiers.length;
+
+    /* the user's actual case: a custom "God" tier, dragged to the very top,
+     * must outweigh everything below it — including ladder-named tiers. */
+    tierList.tiers.unshift({ id: "tier-g-test", label: "God tier" });
+    try {
+      const after = checkMonotonic(tierList, "with custom God tier on top");
+      const god = after.w.get("tier-g-test");
+      const below = after.w.get(after.ids[1]);
+      if (!(god > below))
+        throw new Error(`custom top tier weighs ${god}, not more than the tier below (${below})`);
+    } finally {
+      tierList.tiers = tierList.tiers.filter((t) => t.id !== "tier-g-test");
+    }
+    if (tierList.tiers.length !== n0) throw new Error("scenario leaked a tier into the user's list");
+
+    return `weights strictly decrease over ${n0} tiers (top ${before.w.get(before.ids[0])} → bottom ${before.bottom}); `
+      + `a custom "God tier" on top outweighs the tier below it`;
+  }
+
+  /* H — duplicates: "same show, other name" ---------------------------------
+   * The ⧉ overlay on a recommendation opens a picker; picking the tracked entry
+   * it duplicates must (1) record the pair, (2) hide the card immediately,
+   * (3) add the duplicate to the seen index so future batches skip it, and
+   * (4) keep the taste model from counting both names as two shows.  Removing
+   * the marking from the ⧉ Duplicates panel must bring it straight back. */
+  async function scenarioH() {
+    const modal = doc.getElementById("dupeModal");
+    const panel = doc.getElementById("dupePanel");
+    if (!modal || !panel) throw new Error("no #dupeModal / #dupePanel in the page");
+    if (typeof hook.dupes !== "function" || typeof hook.buildSeenIndex !== "function")
+      throw new Error("no dupes()/buildSeenIndex() on the hook");
+    if ((hook.dupes() || []).length) throw new Error("leftover duplicate markings from a previous run");
+
+    await hook.computeRecs(true).catch(() => {});
+    await waitFor(() => doc.querySelectorAll(".rec-card").length > 0, 10000,
+      "at least one .rec-card to render");
+    const card = doc.querySelector(".rec-card");
+    const title = card?.querySelector(".rec-title")?.textContent;
+    if (!title) throw new Error("no recommendation card with a title to mark");
+    const dupeBtn = card.querySelector(".dupe-btn");
+    if (!dupeBtn) throw new Error("rec card has no ⧉ .dupe-btn");
+
+    /* 1 — the picker opens and lists tracked entries */
+    dupeBtn.click();
+    if (modal.style.display === "none") throw new Error("⧉ did not open the duplicate picker");
+    const picks = [...modal.querySelectorAll(".dupe-pick")];
+    if (!picks.length) throw new Error("picker lists nothing to duplicate");
+    const ofTitle = picks[0].textContent || "";   // dupe-pick: "Title" + small "list · tier"
+    picks[0].click();
+    if (modal.style.display !== "none") throw new Error("picker did not close after choosing");
+
+    /* 2 — the pair is recorded and the card vanished from the batch */
+    const dupes = hook.dupes();
+    if (dupes.length !== 1) throw new Error(`dupes() = ${JSON.stringify(dupes)}, expected exactly one pair`);
+    if (dupes[0].title !== title || ofTitle.indexOf(dupes[0].of) < 0)
+      throw new Error(`pair is ${JSON.stringify(dupes[0])}, expected {title: ${JSON.stringify(title)}, of: a tracked title}`);
+    if (doc.querySelector(".rec-card .rec-title")?.textContent === title)
+      throw new Error(`marked duplicate "${title}" is still rendered as a recommendation`);
+    if (panel.style.display === "none") throw new Error("⧉ Duplicates panel did not appear");
+    if (!panel.textContent.includes(title)) throw new Error("panel does not list the marked duplicate");
+
+    /* 3 — the seen index now blocks it, so future batches skip it.  This is the
+     * app's own looksTracked(): the same predicate the rec pipeline applies. */
+    const seen = hook.buildSeenIndex();
+    if (!seen.looksTracked(title))
+      throw new Error("buildSeenIndex().looksTracked does not block the marked duplicate");
+
+    /* 4 — the taste model counts the franchise once, not twice */
+    if (typeof hook.dupeGuard === "function") {
+      const g = hook.dupeGuard();
+      if (g(dupes[0].of)) throw new Error("guard flagged the first side of the pair");
+      if (!g(dupes[0].title)) throw new Error("guard did not flag the second name of an already-counted show");
+    }
+
+    /* 5 — unmark from the panel: it is recommended again immediately */
+    panel.querySelector(".dupe-x")?.click();
+    if (hook.dupes().length) throw new Error("✕ in the panel did not remove the marking");
+    if (doc.querySelector(".rec-card .rec-title")?.textContent !== title)
+      throw new Error("removed duplicate did not reappear in the current batch");
+    if (panel.style.display !== "none") throw new Error("empty panel is still visible");
+
+    return `marked "${title}" as a duplicate of a tracked entry: hidden, seen-blocked, counted once, restored`;
+  }
+
+  /* I — tier labels and notes edit in place ----------------------------------
+   * Double-clicking a tier label swaps in an input right inside the label
+   * (Enter commits, Esc cancels); double-clicking a card opens its tooltip with
+   * the notes editor focused — the notes sit below the synopsis, Enter saves
+   * (blank clears), Esc cancels.  No prompt() anywhere. */
+  async function scenarioI() {
+    const tt = doc.getElementById("tooltip");
+    if (!tt) throw new Error("no #tooltip in the page");
+    const fire = (el, Ctor, init) => el.dispatchEvent(new win[Ctor](init.type, init));
+
+    /* --- tier label, renamed inside the label --- */
+    const row = doc.querySelector(".tier-row:not(.unranked)");
+    const label = row?.querySelector(".tier-label");
+    if (!label) throw new Error("no tier row found to rename");
+    const tierList = hook.state().lists.find((l) => l.kind === "tier");
+    const tier = tierList.tiers.find((t) => t.id === row.querySelector(".tier-drop").dataset.tierId);
+    const original = tier.label;
+
+    label.dispatchEvent(new win.MouseEvent("dblclick", { bubbles: true }));
+    let input = label.querySelector(".tier-label-edit");
+    if (!input) throw new Error("dblclick on a tier label did not open the inline rename input");
+    input.value = "Renamed tier";
+    fire(input, "KeyboardEvent", { type: "keydown", key: "Escape", bubbles: true });
+    if (tier.label !== original) throw new Error("Esc should have cancelled the tier rename");
+    if (label.querySelector(".tier-label-edit")) throw new Error("Esc did not close the rename input");
+
+    label.dispatchEvent(new win.MouseEvent("dblclick", { bubbles: true }));
+    input = label.querySelector(".tier-label-edit");
+    if (!input) throw new Error("the inline rename input did not reopen");
+    input.value = "Renamed tier";
+    fire(input, "KeyboardEvent", { type: "keydown", key: "Enter", bubbles: true });
+    if (tier.label !== "Renamed tier") throw new Error(`Enter did not commit the rename: ${JSON.stringify(tier.label)}`);
+    if (label.querySelector(".tier-label-edit")) throw new Error("a committed rename left the input in place");
+    /* render() rebuilt the row — the fresh label must carry the new name */
+    const freshLabel = doc.querySelector(".tier-row:not(.unranked) .tier-label");
+    if (!freshLabel || !freshLabel.textContent.includes("Renamed tier"))
+      throw new Error("the repainted label does not show the new name");
+    tier.label = original;                                  // leave the list as it was
+    freshLabel.querySelector(".tl-text").textContent = original;
+
+    /* --- notes, edited inside the tooltip (below the synopsis) --- */
+    const card = doc.querySelector(".item");
+    const list = hook.state().lists.find((l) => l.id === card.dataset.listId);
+    const entry = list.entries.find((x) => x.id === card.dataset.entryId);
+    if (!entry) throw new Error("no tracked entry behind the first card");
+
+    card.dispatchEvent(new win.MouseEvent("dblclick", { bubbles: true }));
+    if (tt.style.display !== "block") throw new Error("dblclick on a card did not open the tooltip");
+    let ta = tt.querySelector(".tt-notes-edit");
+    if (!ta) throw new Error("tooltip opened without a focused notes editor");
+    const order = [...tt.children].map((c) => String(c.className)).join("|");
+    if (order.indexOf("tt-syn") < 0 || order.indexOf("tt-notes") < order.indexOf("tt-syn"))
+      throw new Error(`notes are not below the synopsis: ${order}`);
+
+    ta.value = "must watch the dub";
+    fire(ta, "KeyboardEvent", { type: "keydown", key: "Enter", bubbles: true });
+    if (entry.notes !== "must watch the dub") throw new Error(`Enter did not save the note: ${JSON.stringify(entry.notes)}`);
+    if (tt.querySelector(".tt-notes-edit")) throw new Error("saving left the notes editor open");
+    if (!tt.querySelector(".tt-notes-body").textContent.includes("must watch the dub"))
+      throw new Error("the saved note is not displayed below the synopsis");
+    let fresh = doc.querySelector(`.item[data-entry-id="${entry.id}"]`);
+    if (!fresh?.querySelector(".notes-dot")) throw new Error("the card lost its 📝 dot after saving a note");
+
+    /* Esc cancels; clicking the notes reopens the editor; a blank save clears */
+    fresh.dispatchEvent(new win.MouseEvent("dblclick", { bubbles: true }));
+    ta = tt.querySelector(".tt-notes-edit");
+    if (!ta) throw new Error("dblclick did not reopen the notes editor");
+    ta.value = "changed my mind";
+    fire(ta, "KeyboardEvent", { type: "keydown", key: "Escape", bubbles: true });
+    if (entry.notes !== "must watch the dub") throw new Error("Esc altered the saved note");
+
+    tt.querySelector(".tt-notes-body").click();
+    ta = tt.querySelector(".tt-notes-edit");
+    if (!ta) throw new Error("clicking the notes did not open the editor");
+    ta.value = "   ";
+    fire(ta, "KeyboardEvent", { type: "keydown", key: "Enter", bubbles: true });
+    if (entry.notes) throw new Error("saving blank text did not clear the note");
+    fresh = doc.querySelector(`.item[data-entry-id="${entry.id}"]`);
+    if (fresh?.querySelector(".notes-dot")) throw new Error("the 📝 dot survived clearing the note");
+
+    return "tier renamed in place (Esc cancels, Enter commits); notes edited below the synopsis (save, cancel, blank-clears)";
+  }
+
+  return { A: scenarioA, B: scenarioB, C: scenarioC, D: scenarioD, F: scenarioF, G: scenarioG, H: scenarioH, I: scenarioI };
 }
 
 /* ============================================================================
@@ -789,6 +991,9 @@ async function main() {
     addRow("C", "adult title searchable", "SKIP", "needs __animeTest (hook missing)");
     addRow("D", "relevance ranking", "SKIP", "needs __animeTest (hook missing)");
     addRow("F", "watch chooser → top five on EverythingMoe", "SKIP", "needs __animeTest (hook missing)");
+    addRow("G", "tier weights follow position", "SKIP", "needs __animeTest (hook missing)");
+    addRow("H", "duplicates: same show, other name", "SKIP", "needs __animeTest (hook missing)");
+    addRow("I", "tier labels & notes edit in place", "SKIP", "needs __animeTest (hook missing)");
     printTable();
     printFixtureReport();
     console.log(C.y + "\nRe-run this suite once the hook lands — fixtures are already captured." + C.x);
@@ -823,8 +1028,11 @@ async function main() {
     C: "adult title searchable",
     D: "relevance ranking",
     F: "watch chooser → top five on EverythingMoe",
+    G: "tier weights follow position",
+    H: "duplicates: same show, other name",
+    I: "tier labels & notes edit in place",
   };
-  for (const id of ["A", "B", "C", "D", "F"]) {
+  for (const id of ["A", "B", "C", "D", "F", "G", "H", "I"]) {
     try {
       const detail = await withTimeout(scenarios[id](), SCENARIO_TIMEOUT, `scenario ${id}`);
       addRow(id, LABELS[id], "PASS", detail || "ok");
