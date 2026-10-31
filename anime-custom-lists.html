@@ -195,6 +195,15 @@
   }
   .item:hover .remove-btn { visibility: visible; }
   .item .remove-btn:hover { background: rgba(0,0,0,.7); }
+  /* insertion marker for re-ordering a card left/right inside one tier: a thin
+     accent line stands in the row at the slot the dragged card will land in.
+     align-self:stretch makes it the height of the row it sits in. */
+  .insert-bar {
+    flex: 0 0 auto; align-self: stretch; width: 3px; border-radius: 3px;
+    background: var(--accent); box-shadow: 0 0 10px rgba(167,139,250,.85);
+  }
+  @keyframes insert-bar-pulse { from { opacity: .55; } to { opacity: 1; } }
+  .insert-bar { animation: insert-bar-pulse .8s ease-in-out infinite alternate; }
 
   /* watch-online badge: every cover grows a ▶ on hover; clicking it opens the
      chooser listing EverythingMoe's top five (see WATCH ONLINE in the script) */
@@ -675,6 +684,9 @@
       ⚙ Filters narrow results by year, score, status, rating, genre and format.
       18+ titles are labelled, not hidden — the “All ages” chip hides them.<br>
       Drag results into any tier or watch list.<br>
+      Drop a card on a <b style="color:var(--accent)">card</b> (not just the row) to
+      place it left or right of that card — the thin line in the row shows where
+      it will land, in the same tier or a different one.<br>
       Drag a card onto <b style="color:var(--accent)">any tab above</b> to copy it into that
       list — the original stays put, tier list ⇄ watch list.<br>
       Dragging near a screen edge <b style="color:var(--accent)">auto-scrolls</b>.<br>
@@ -3138,16 +3150,104 @@ function clearTierMarks() {
   document.querySelectorAll(".tier-row.ins-above, .tier-row.ins-below")
     .forEach(r => r.classList.remove("ins-above", "ins-below"));
 }
+
+/* ---- re-order a card left / right inside its own tier ----------------------
+   A drop into the row the card came from used to be a no-op: it kept its exact
+   position, so a tier's internal order could never be arranged by hand.  Now the
+   pointer picks the slot — a thin accent line ("insert-bar") stands in the row
+   where the card will land, so "left of X", "right of X" and "end of the row"
+   are all visible before the drop.
+   Entries of a list live in ONE flat array and each row is a filtered view of
+   it, so placement is a splice around the reference card's array entry — which
+   also makes cross-tier and cross-list drops land at the chosen slot instead
+   of always at the end (see insertEntryAtPosition). */
+let cardDragEl = null;      // the .item element under the drag (null for results)
+let draggingCard = false;   // any card drag in progress, .item or search result
+let insertBar = null;       // the marker element currently in a row
+let insertBarKey = null;    // what it last stood for, so dragover can skip no-ops
+
+function clearInsertBar() {
+  if (insertBar && insertBar.parentNode) insertBar.parentNode.removeChild(insertBar);
+  insertBar = null;
+  insertBarKey = null;
+}
+/* The entry the card lands next to (and which side), or null = end of the row.
+   Cards are read in visual order, so a wrapped row still resolves correctly. */
+function computeCardPosition(zone, clientX, clientY) {
+  const cards = [...zone.querySelectorAll(".item")].filter(c => c !== cardDragEl);
+  let ref = null, after = false;
+  for (const c of cards) {
+    const r = c.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    if (clientY < r.top - 6 || clientY > r.bottom + 6) continue;   // another row
+    if (clientX < r.left + r.width / 2) { ref = c; after = false; break; }
+    ref = c; after = true;
+  }
+  return ref ? { el: ref, refEntryId: ref.dataset.entryId, after } : null;
+}
+function updateInsertBar(zone, clientX, clientY) {
+  if (!draggingCard) return;
+  const pos = computeCardPosition(zone, clientX, clientY);
+  const key = pos ? (pos.after ? "a:" : "b:") + pos.refEntryId : "end";
+  if (insertBar && key === insertBarKey && insertBar.parentNode === zone) return;
+  clearInsertBar();
+  const bar = document.createElement("div");
+  bar.className = "insert-bar";
+  if (pos && pos.el) {
+    if (pos.after) pos.el.after(bar);
+    else zone.insertBefore(bar, pos.el);
+  } else {
+    zone.appendChild(bar);
+  }
+  insertBar = bar;
+  insertBarKey = key;
+}
+/* Entries carry their rank in tierId ("" ranks read as null = the — row), so a
+   row is list.entries filtered to one key — and a position inside that row is
+   an index inside the filtered view, not inside the flat array. */
+function tierKeyOfEntry(e) { return e.tierId == null ? "" : String(e.tierId); }
+function insertEntryAtPosition(list, entry, tierKey, pos) {
+  entry.tierId = tierKey || null;
+  list.entries = list.entries.filter(x => x.id !== entry.id);   // it moves, never clones
+  const at = pos && pos.refEntryId
+    ? list.entries.findIndex(x => x.id === pos.refEntryId)     // -1 if it left
+    : -1;
+  if (at >= 0) {
+    list.entries.splice(pos.after ? at + 1 : at, 0, entry);
+    return;
+  }
+  /* "End of the row" is the end of THIS row's slice: other tiers' entries keep
+     their place in the array, so nothing about them changes. */
+  const group = list.entries.filter(e => tierKeyOfEntry(e) === tierKey);
+  const last = group[group.length - 1];
+  if (last) {
+    const i = list.entries.findIndex(x => x.id === last.id);
+    list.entries.splice(i + 1, 0, entry);
+  } else {
+    list.entries.push(entry);
+  }
+}
+
 document.addEventListener("dragstart", ev => {
   const card = ev.target.closest(".item");
   const rc = ev.target.closest(".result-card, .rec-card");
   if (card) {
+    cardDragEl = card;
+    draggingCard = true;
     ev.dataTransfer.setData("text/plain",
       JSON.stringify({ type: "entry", listId: card.dataset.listId, entryId: card.dataset.entryId }));
   } else if (rc) {
+    draggingCard = true;               // .item drags skip themselves in the index
     ev.dataTransfer.setData("text/plain",
       JSON.stringify({ type: "search", searchId: rc.dataset.searchId }));
   }
+});
+/* A drag that ends outside any row (Esc, the sidebar, a tab) must not leave the
+   marker behind — render() would wipe it anyway, but a cancelled drag must not. */
+document.addEventListener("dragend", () => {
+  cardDragEl = null;
+  draggingCard = false;
+  clearInsertBar();
 });
 /* Everything inside the open list that accepts a dropped card. */
 const DROP_ZONE_SEL = ".tier-drop, .drop-zone";
@@ -3158,13 +3258,20 @@ document.addEventListener("dragover", ev => {
   if (tierDrag) return;                 // reordering tiers: only the row handles it
   const tab = ev.target.closest?.(TAB_SEL);
   if (tab) {
+    clearInsertBar();
     ev.preventDefault();
     [...tabsEl.querySelectorAll(".tab-over")].forEach(t => t.classList.remove("tab-over"));
     if (!tab.classList.contains("active")) tab.classList.add("tab-over");
     return;
   }
   const zone = ev.target.closest(DROP_ZONE_SEL);
-  if (zone) { ev.preventDefault(); zone.closest(".list-panel")?.classList.add("dragover"); }
+  if (zone) {
+    ev.preventDefault();
+    zone.closest(".list-panel")?.classList.add("dragover");
+    updateInsertBar(zone, ev.clientX, ev.clientY);
+    return;
+  }
+  clearInsertBar();                     // pointer left every row: nothing to mark
 });
 document.addEventListener("dragleave", ev => {
   const tab = ev.target.closest?.(TAB_SEL);
@@ -3186,19 +3293,26 @@ document.addEventListener("drop", ev => {
   const zone = ev.target.closest(DROP_ZONE_SEL);
   if (!zone) return;
   ev.preventDefault();
+  clearInsertBar();
   zone.closest(".list-panel")?.classList.remove("dragover");
   let payload;
   try { payload = JSON.parse(ev.dataTransfer.getData("text/plain")); } catch (e) { return; }
 
   const list = findList(zone.dataset.listId);
   if (!list) return;
+  /* the row decides the slot: same tier = left/right re-order, anywhere else =
+     still inserted at the pointer rather than appended to the end. */
+  const tierKey = zone.dataset.tierId || "";      // watch lists carry "" too
+  const pos = computeCardPosition(zone, ev.clientX, ev.clientY);
   if (payload.type === "search") {
     const cand = findCandidate(payload.searchId);
     if (cand) {
-      list.entries.push({ ...blankEntry(cand.title), source: cand.source, srcId: cand.srcId,
-        cover: cand.cover, score: cand.score, year: cand.year, format: cand.format,
-        episodes: cand.episodes, synopsis: cand.synopsis, url: cand.url,
-        tierId: list.kind === "tier" ? (zone.dataset.tierId || null) : null, metaDone: true });
+      insertEntryAtPosition(list,
+        { ...blankEntry(cand.title), source: cand.source, srcId: cand.srcId,
+          cover: cand.cover, score: cand.score, year: cand.year, format: cand.format,
+          episodes: cand.episodes, synopsis: cand.synopsis, url: cand.url,
+          metaDone: true },
+        tierKey, pos);
       render();
     }
   } else if (payload.type === "entry") {
@@ -3207,11 +3321,8 @@ document.addEventListener("drop", ev => {
     if (e && src) {
       /* A watch list has no tiers, so landing there always clears the rank — this is
          what makes tier list -> watch list -> tier list round-trips work. */
-      e.tierId = list.kind === "tier" ? (zone.dataset.tierId || null) : null;
-      if (src.id !== list.id) {
-        src.entries = src.entries.filter(x => x.id !== e.id);
-        list.entries.push(e);
-      }
+      if (src.id !== list.id) src.entries = src.entries.filter(x => x.id !== e.id);
+      insertEntryAtPosition(list, e, tierKey, pos);
       render();
     }
   }
