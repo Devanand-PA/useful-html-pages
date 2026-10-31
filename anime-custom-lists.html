@@ -3613,6 +3613,12 @@ document.addEventListener("click", ev => {
    grace timer; re-entering cancels it.  Page scrolls (except inside the tooltip)
    hide it — the anchor would drift otherwise. */
 let ttTimer = null, ttHideTimer = null, ttFor = null;
+/* Grace period after the pointer leaves the card / the tooltip before it goes.
+   It only has to cover crossing the 10px gap onto the tooltip (placeTooltip puts
+   it at rect.right + 10); 120ms is several times that, so the tooltip still
+   catches the mouse on its way to "Open page", but it now feels like the card
+   let go of it the moment you move off.  Set it to 0 to hide instantly. */
+const TOOLTIP_HIDE_DELAY = 50;
 function findCandidate(id) {
   if (!id) return undefined;
   return searchCandidates.find(x => x.searchId === id)
@@ -3624,7 +3630,7 @@ function hideTooltip() {
 }
 function scheduleTooltipHide() {
   clearTimeout(ttHideTimer);
-  ttHideTimer = setTimeout(hideTooltip, 300);
+  ttHideTimer = setTimeout(hideTooltip, TOOLTIP_HIDE_DELAY);
 }
 /* next to the card: right side if it fits, else the left; clamped to the window */
 function placeTooltip(el) {
