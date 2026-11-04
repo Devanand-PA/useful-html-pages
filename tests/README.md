@@ -1,4 +1,24 @@
-# Smoke suite for `anime-custom-lists.html`
+# Smoke suites for `useful-html-pages`
+
+Two single-file apps, one harness pattern: the real HTML is booted in
+[jsdom](https://github.com/jsdom/jsdom) with its **network replaced by recorded
+fixtures**, so each suite is fast, offline and reproducible.
+
+| app | suite | fixtures | capture script |
+|---|---|---|---|
+| `anime-custom-lists.html` | `npm test` | `tests/fixtures/` | `npm run capture` (`capture-fixtures.sh`) |
+| `jobs-custom-lists.html` | `npm run test:jobs` | `tests/fixtures-jobs/` | `npm run capture:jobs` (`capture-jobs-fixtures.sh`) |
+
+`node_modules/` is already installed in this working copy. If you need to reinstall:
+
+```bash
+cd tests && npm i --cache ./.npm-cache     # sandboxes with a read-only HOME npm cache
+cd tests && npm i                          # normal machine
+```
+
+---
+
+## 1. `anime-custom-lists.html` — `npm test`
 
 Deterministic end-to-end checks for the single-file app one directory up. The real
 HTML is booted in [jsdom](https://github.com/jsdom/jsdom) with its **network replaced
@@ -128,4 +148,93 @@ the base contract in `smoke.mjs`.
 - The AniList outage is *modelled*, not mocked away: if the API comes back, re-capture
   `anilist-403.json` (or add a healthy GraphQL fixture) before trusting scenario A to
   exercise the provider-discovery fallback.
+- The suite only writes under `tests/`. It never edits the app.
+
+---
+
+## 2. `jobs-custom-lists.html` — `npm run test:jobs`
+
+Same harness, different app: `smoke-jobs.mjs` boots `../jobs-custom-lists.html`
+in jsdom with its network replayed from `fixtures-jobs/` and drives everything
+through `window.__jobsTest`. The three job APIs it talks to are all CORS-open and
+key-free, so the fixtures are real captured bodies (see
+[`docs/jobs-api-capabilities.md`](../docs/jobs-api-capabilities.md)).
+
+| id | scenario | assertion |
+|---|---|---|
+| A | matching jobs are visual | after `computeRecs(true)` + hydration: at least one `.rec-card` renders, **every** rendered card contains an `<img>` with a non-empty absolute `http(s)` src, **every** object from `recCandidates()` has a non-empty `cover` and `synopsis`, and `recSource()` is `"providers"` (never `"offline"`) |
+| B | metadata back-fill | blanking every seeded job and re-running `syncMissingMeta()` leaves **every** entry with artwork and a description (or pay), and no `.item` still shows the “no image yet” tile |
+| C | keyword search | `doSearch("python")` surfaces candidates whose tags include `python`, one rendered `.result-card` per candidate |
+| D | relevance ranking | those python-tagged postings sit inside the **first 5** results (tag hits must outrank unrelated rows) |
+| E | app did not throw | no `window.onerror`, no unhandled rejection (page or Node level) while the scenarios run |
+| F | open-on chooser | every card kind (`.item`, `.result-card`, `.rec-card`) carries **exactly one** `.watch-btn`; clicking it opens `#watchMenu`; the chooser opens the card's own posting first (when it has a URL) then lists **exactly five** uniquely-named ranked sites in order (LinkedIn → Indeed → Glassdoor → Wellfound → Google Jobs); picking **#1** opens `https://www.linkedin.com/jobs/search?keywords=<url-encoded title of that card>` in `_blank` |
+| G | tier weights follow position | `tierWeights(list)` is **strictly decreasing** top-to-bottom for the seeded ladder, the unranked row weighs less than the bottom tier, and a custom-named tier unshifted on top (“God”) pins at 1.0 without breaking strict decrease |
+| H | duplicates: same job, another name | clicking ⧉ on the first `.rec-card` opens `#dupeModal`; choosing a tracked job records exactly one `{key, of}` pair, hides that card from the batch (the next-best match steps into its slot), shows `#dupePanel` with the pair, makes `buildSeenIndex().looksTracked` block it, and `dupeGuard()` counts the other name of the pair as already-counted; ✕ restores it |
+| I | tier labels & notes edit in place | dbl-clicking a tier label swaps `.tl-text` for a `.tier-label-edit` input inside the label — Esc cancels, Enter commits and the repainted row shows the new name; dbl-clicking an `.item` opens its tooltip with a focused `textarea.tt-notes-edit` **below `.tt-syn`** — Enter saves (📝 dot appears), Esc cancels, saving blank text clears the note and the dot. No `prompt()` anywhere in the flow |
+| J | posting URL → card | `addCard.open({mode:"url", url})` opens the modal with all three flavours; **⚡ Fetch details** walks the relay chain and fills `#acTitle` / `#acCompany` from the captured reader response for a real Greenhouse posting; saving files the card in the chosen tier with its URL and fetched description |
+| K | screenshot → card | `addCard.attachImage(dataUrl)` opens the modal in screenshot mode with the preview rendered; saving produces a card whose `cover` stays the `data:image` URL (jsdom has no canvas, so no downscaling happens), `shot === true`, and the card renders `img.shot` plus the 📷 dot |
+| L | pay & region normalisation | `parsePay` annualises monthly (`$3.5k–$5k/month` → 60k), hourly (`$50–$75/hour` → 104k) and yearly strings, leaves “competitive” unparsed; `regionOf` buckets “Berlin, Germany” → `Germany` and Remote/Worldwide → `Worldwide`; `canonSkill("typescript")` → `TypeScript` |
+
+### Fixtures (`fixtures-jobs/`)
+
+Every file is a **real HTTP response body** captured with `curl` by
+`capture-jobs-fixtures.sh`; a non-200 gets a `<file>.status` sidecar. Re-capture
+everything with `npm run capture:jobs`.
+
+| fixture | source | notes |
+|---|---|---|
+| `remotive-ping.json` | `remotive.com/api/remote-jobs?limit=1` | boot liveness probe (also the body Remotive serves for every query right now — see below) |
+| `remotive-search-python.json` | `?limit=20&search=python` | the search result pool: 12 postings with tags, pay strings and logos |
+| `remotive-search-designer.json`, `remotive-category-software-development.json` | same host, other params | captured; byte-identical to the ping body |
+| `jobicy-ping.json` | `jobicy.com/api/v2/remote-jobs?count=1` | boot probe |
+| `jobicy-industry-{engineering,data-science,seller,management}.json` | `?count=20&industry=<slug>` | **the four most frequent industries, under their official slugs** — Jobicy answers a *label* slug (e.g. `industry=software-engineering`) with HTTP 400 `Invalid 'industry' value`; the full vocabulary comes from `?get=industries` |
+| `arbeitnow-ping.json` | `arbeitnow.com/api/job-board-api?page=99999` | 747 bytes: a page past the end, an empty `data` array — the cheap ping for a 2.4 MB-per-page board |
+| `arbeitnow-board.json` | `?page=2` | 300 real postings (tags, locations, `remote` flags; **no company logos**, which is why the app treats the board as a discovery source only) |
+| `jina-greenhouse.txt` | `r.jina.ai/https://job-boards.greenhouse.io/gitlab/jobs/8629019002` | the reader-relay answer scenario J parses: a `Title:` line plus the posting's opening paragraphs |
+
+**Known upstream quirk recorded in the fixtures:** Remotive is currently serving a
+*collapsed* Cloudflare cache — `search=python`, `search=designer`, `category=…`
+and `limit=1` all return the same 12 postings (identical `cf-cache-status: HIT`
+and `last-modified`), and `limit` is ignored. The fixtures are real and faithful,
+but the suite therefore cannot assert server-side search filtering against
+Remotive; it asserts relevance ranking over the returned pool instead. Re-capture
+when Cloudflare stops collapsing the cache key.
+
+### How requests are routed
+
+Like `smoke.mjs`, `smoke-jobs.mjs` never matches on a full URL — it routes by host
+and query-parameter shape, so a new page size or an added parameter still lands on
+the same fixture:
+
+| host | rule | fixture |
+|---|---|---|
+| `*remotive*` | has `search` | `remotive-search-python.json` |
+| | has `category` | `remotive-category-software-development.json` |
+| | otherwise | `remotive-ping.json` |
+| `*jobicy*` | has `industry` | `jobicy-industry-<slug>.json` (falls back to the engineering slice) |
+| | otherwise | `jobicy-ping.json` |
+| `*arbeitnow*` | `page=99999` | `arbeitnow-ping.json` |
+| | any other page | `arbeitnow-board.json` |
+| `*r.jina.ai*` | any | `jina-greenhouse.txt` |
+| anything else | — | 404 + empty body, listed under **unmatched requests** |
+
+Anything unmatched returns an empty payload and is reported: the relay chain the
+app walks for “paste a URL” (direct fetch → reader → allorigins → corsproxy)
+surfaces there as one direct hit per fetch, which is exactly what a CORS-blocked
+job board looks like from a browser.
+
+### Environment knobs
+
+Same as the anime suite: `SMOKE_REALTIME=1`, `SMOKE_VERBOSE=1`,
+`SMOKE_READY_TIMEOUT`, `SMOKE_DUMP_URLS=1`, `SMOKE_APP=<path>`. Exit codes are
+identical (0 all green · 1 failure · 2 hook missing · 3 harness/boot failure).
+
+Intentional limitations specific to the jobs suite:
+
+- **jsdom has no canvas**, so a pasted/dropped screenshot is stored as its raw
+  data URL. Scenario K asserts that path; the canvas downscale a real browser
+  performs is not covered by the suite (it is exercised by the screenshots in
+  `docs/`, which were taken in headless Chromium against the live APIs).
+- The suite asserts **relevance ranking over a fixed pool** (see the Remotive
+  cache quirk above), not which postings a provider happens to return.
 - The suite only writes under `tests/`. It never edits the app.
